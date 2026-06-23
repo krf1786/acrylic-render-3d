@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Layered Acrylic Finish Preview</title>
+<style>
+  :root{--bg:#0c0d11;--panel:#15171e;--panel2:#1c1f28;--line:#2a2e3a;--txt:#e8eaf0;--muted:#969cab;--accent:#c8a24a;}
+  *{box-sizing:border-box} html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;}
+  .wrap{display:flex;height:100%;}
+  .stage{flex:1;position:relative;background:radial-gradient(130% 130% at 50% 0%,#23262f 0%,#0a0b0e 70%);}
+  #c{width:100%;height:100%;display:block;cursor:grab;} #c:active{cursor:grabbing;}
+  .hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);color:var(--muted);font-size:12px;background:rgba(0,0,0,.4);padding:6px 12px;border-radius:20px;pointer-events:none;}
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;}
+  .dz{border:2.5px dashed #39404e;border-radius:18px;padding:46px 60px;max-width:560px;}
+  .dz.hot{border-color:var(--accent);background:rgba(200,162,74,.06);}
+  .dz h2{margin:0 0 8px;font-size:20px;font-weight:600;} .dz p{margin:4px 0;color:var(--muted);font-size:13px;line-height:1.6;}
+  .big{font-size:42px;margin-bottom:10px;opacity:.8;}
+  .status{position:absolute;left:50%;bottom:46px;transform:translateX(-50%);color:var(--txt);font-size:13px;background:rgba(0,0,0,.55);padding:9px 16px;border-radius:22px;display:none;align-items:center;gap:10px;}
+  .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .panel{width:340px;flex:none;background:var(--panel);border-left:1px solid var(--line);padding:18px 18px 40px;overflow-y:auto;}
+  h1{font-size:15px;margin:0 0 2px;} .sub{color:var(--muted);font-size:11.5px;margin:0 0 14px;line-height:1.5;}
+  .group{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 13px;margin-bottom:12px;}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px;font-weight:600;}
+  label.row{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;margin:9px 0;gap:10px;}
+  input[type=range]{width:140px;accent-color:var(--accent);}
+  .val{color:var(--accent);font-variant-numeric:tabular-nums;font-size:12px;min-width:46px;text-align:right;}
+  .btn{background:#0e0f13;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:12.5px;cursor:pointer;width:100%;}
+  .btn:hover{border-color:var(--accent);} .btn.active{border-color:var(--accent);color:var(--accent);}
+  .seg{display:flex;gap:6px;margin-bottom:8px;} .seg .btn{padding:7px 6px;}
+  input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;}
+  select{background:#0e0f13;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:11px;}
+  input[type=color]{width:26px;height:24px;border:none;background:none;padding:0;border-radius:5px;}
+  .layer{background:#0e0f15;border:1px solid var(--line);border-radius:9px;padding:9px 10px;margin-bottom:9px;}
+  .layer .top{display:flex;align-items:center;gap:6px;}
+  .layer .nm{flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:text;border-radius:3px;padding:1px 3px;}
+  .layer .nm:hover{background:rgba(255,255,255,.05);} .layer .nm:focus{outline:1px solid var(--accent);background:#0b0d11;overflow:visible;text-overflow:clip;}
+  .layer .ic{cursor:pointer;color:var(--muted);font-size:13px;padding:1px 4px;border:1px solid var(--line);border-radius:5px;}
+  .layer .ic:hover{color:var(--accent);border-color:var(--accent);}
+  .layer .ctl{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;align-items:center;}
+  .layer .ctl label{font-size:10.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px;}
+  .finsw{display:flex;flex-wrap:wrap;gap:5px 11px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line);}
+  .fsw{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--txt);cursor:pointer;}
+  .fsw input{width:13px;height:13px;}
+  .err{color:#ff8585;font-size:12px;margin-top:10px;white-space:pre-wrap;}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="overlay" id="overlay"><div class="dz" id="dz">
+      <div class="big">⬇︎</div><h2>Drop a print PDF to start a stack</h2>
+      <p>Each PDF becomes a printed layer. Add blank clear/colored acrylic sheets, set each layer's thickness, and stack them like the real glued-up piece.</p>
+      <p style="margin-top:10px"><span id="engine">Loading the engine… (~16&nbsp;MB, first time only)</span></p>
+      <div class="err" id="err"></div>
+    </div></div>
+    <div class="status" id="status"><div class="spin"></div><span id="statusTxt">Working…</span></div>
+    <div class="hint">Drag to tilt · middle/right-drag to pan · scroll to zoom · drop a PDF to add a layer · drop a photo to reflect</div>
+  </div>
+  <div class="panel">
+    <h1>Layered Acrylic Preview</h1>
+    <p class="sub">Build a laminated acrylic piece: stack printed PDFs and blank acrylic sheets, bottom to top, each with its own thickness.</p>
+    <div id="panelMain" style="display:block">
+      <div class="group"><h2>Layers (bottom → top)</h2>
+        <div id="layers"></div>
+        <button class="btn" id="addBlank" style="margin-top:4px">+ Add blank acrylic sheet</button>
+        <p class="sub" style="margin:8px 0 0">Drop another PDF anytime to add a printed layer. Reorder with ↑ ↓.</p>
+      </div>
+      <div class="group"><h2>Lighting</h2>
+        <label class="row" style="margin:0 0 5px"><span>Ambiance</span></label>
+        <select id="envMood" style="width:100%">
+          <option value="studio">Studio</option><option value="showroom">Showroom (warm)</option>
+          <option value="soft">Soft / overcast</option><option value="dramatic">Dramatic</option>
+          <option value="daylight">Daylight (cool)</option><option value="night">Night / moody</option>
+        </select>
+        <label class="row" style="margin:9px 0 5px"><span>Key light position</span></label>
+        <div id="keyPos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+          <button class="btn" data-pos="tl">↖</button><button class="btn active" data-pos="top">▲</button><button class="btn" data-pos="tr">↗</button>
+          <button class="btn" data-pos="left">◀</button><button class="btn" data-pos="front">●</button><button class="btn" data-pos="right">▶</button>
+        </div>
+        <label class="row" style="margin-top:9px"><span>Light size</span><input type="range" id="keySize" min="80" max="540" value="240"></label>
+        <button class="btn" id="envLoadBtn" style="width:100%;margin-top:4px">Load my own photo…</button>
+        <input type="file" id="envFile" accept="image/*" style="display:none">
+        <label class="row" style="margin-top:9px"><span>Exposure</span><input type="range" id="exp" min="20" max="240" value="110"><span class="val" id="expV">1.10</span></label>
+        <label class="row"><span>Light intensity</span><input type="range" id="envB" min="20" max="260" value="100"><span class="val" id="envBV">1.00</span></label>
+      </div>
+      <div class="group"><h2>Backdrop &amp; scene</h2>
+        <label class="row" style="margin:0 0 5px"><span>Photoreal scene</span></label>
+        <select id="scene" style="width:100%;margin-bottom:9px">
+          <option value="">— none (use lighting above) —</option>
+          <option value="fireplace">Living room · fireplace</option>
+          <option value="wooden_lounge">Wooden lounge</option>
+          <option value="old_room">Old room (fireplace)</option>
+          <option value="anniversary_lounge">Anniversary lounge</option>
+          <option value="combination_room">Modern room</option>
+          <option value="poly_haven_studio">White studio</option>
+        </select>
+        <label class="row" style="margin:0 0 5px"><span>Plain backdrop</span></label>
+        <select id="backdrop" style="width:100%">
+          <option value="studio">Studio gradient</option><option value="black">Black</option><option value="charcoal">Charcoal</option>
+          <option value="white">White</option><option value="warm">Warm</option><option value="bluegrad">Blue gradient</option>
+          <option value="sunset">Sunset</option><option value="marble">Marble</option><option value="velvet">Velvet (maroon)</option>
+          <option value="emerald">Emerald</option><option value="champagne">Champagne</option><option value="environment">Show the lighting scene</option>
+        </select>
+        <p class="sub" style="margin:8px 0 0">Photoreal scenes are free CC0 HDRIs (Poly&nbsp;Haven) loaded live — the metal reflects the real room.</p>
+      </div>
+      <div class="group"><h2>View</h2>
+        <label class="row"><span>Stand on black glass</span><input type="checkbox" id="pedestal"></label>
+        <label class="row"><span>Auto-rotate</span><input type="checkbox" id="auto"></label>
+        <label class="row"><span>Spin speed</span><input type="range" id="spin" min="1" max="40" value="8"></label>
+        <button class="btn" id="reset">Reset view</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>globalThis.exports={};</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.js"></script>
+<script>
+const GS_WASM='https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.wasm';
+const REFH=11; // assumed real piece height (inches) for thickness scaling
+const $=id=>document.getElementById(id);
+function showErr(m){ $('err').textContent=m; }
+function status(t){ if(t){$('statusTxt').textContent=t;$('status').style.display='flex';} else $('status').style.display='none'; }
+
+let gsWasmModule=null, gsReady=false;
+async function loadGs(){ try{
+  if(typeof THREE==='undefined') throw new Error('three.js failed to load.');
+  if(typeof UTIF==='undefined') throw new Error('UTIF failed to load.');
+  if(!globalThis.exports||!globalThis.exports.Module) throw new Error('Ghostscript engine failed to load.');
+  const r=await fetch(GS_WASM); if(!r.ok) throw new Error('Engine download failed ('+r.status+').');
+  gsWasmModule=await WebAssembly.compile(await r.arrayBuffer()); gsReady=true; $('engine').textContent='Ready — drop a print PDF to begin.';
+}catch(e){ showErr(String(e.message||e)); $('engine').textContent='Engine failed to load.'; } }
+const createGs=globalThis.exports.Module;
+async function runTiffsep(pdfBytes,dpi){
+  const mod=await createGs({noInitialRun:true,noExitRuntime:true,
+    instantiateWasm:(imp,cb)=>{WebAssembly.instantiate(gsWasmModule,imp).then(i=>cb(i,gsWasmModule));return{};},
+    print:t=>console.log('[gs]',t),printErr:t=>console.warn('[gs]',t)});
+  mod.FS.writeFile('in.pdf',pdfBytes);
+  try{mod.callMain(['-q','-dBATCH','-dNOPAUSE','-dSAFER','-sDEVICE=tiffsep','-r'+dpi,'-o','out-%d.tif','in.pdf']);}catch(e){}
+  const files=mod.FS.readdir('/').filter(f=>/\(.+\)\.tif$/.test(f));
+  return files.map(f=>({name:f.match(/\((.+)\)\.tif$/)[1],u8:mod.FS.readFile('/'+f)}));
+}
+const PROCESS=new Set(['cyan','magenta','yellow','black']);
+function classify(name){const n=name.toLowerCase();let metal=0,col=[0.05,0.05,0.055],flake=0,rough,clear;
+  if(/silver|chrome/.test(n)||(/mirror/.test(n)&&!/gold/.test(n))||(/foil/.test(n)&&!/gold/.test(n))){metal=1;col=[0.95,0.96,1.0];}
+  else if(/gold|brass/.test(n)){metal=1;col=[1.0,0.82,0.42];}
+  else if(/copper|bronze|rose/.test(n)){metal=1;col=[0.96,0.64,0.45];}
+  else if(/white/.test(n)){col=[0.9,0.9,0.92];} else if(/black/.test(n)){col=[0.05,0.05,0.055];}
+  if(/gloss|uv|shiny|glossy/.test(n)){rough=metal?0.06:0.10;clear=1.0;}
+  else if(/matt|soft|velvet/.test(n)){rough=metal?0.34:0.80;clear=0.0;flake=metal?1:0;}
+  else if(/satin/.test(n)){rough=0.25;clear=0.4;} else {rough=metal?0.30:0.55;clear=0.3;}
+  return {name,metal,col,rough,clear,flake};}
+
+// ================= layer model =================
+let layers=[]; // bottom -> top
+let idc=0;
+// OUTER-perimeter ring only (not around interior holes) -> clear/frosted edge band that doesn't fill screw holes
+function makeRing(shape,W,H,R){
+  const thr=128,N=W*H; const bin=new Uint8Array(N); for(let i=0;i<N;i++)bin[i]=shape[i]>thr?1:0;
+  // exterior background = reachable from the image border (interior holes are NOT exterior)
+  const ext=new Uint8Array(N); const st=[];
+  function seed(x,y){const i=y*W+x;if(!ext[i]&&!bin[i]){ext[i]=1;st.push(i);}}
+  for(let x=0;x<W;x++){seed(x,0);seed(x,H-1);} for(let y=0;y<H;y++){seed(0,y);seed(W-1,y);}
+  while(st.length){const i=st.pop(),x=i%W,y=(i/W)|0;if(x>0)seed(x-1,y);if(x<W-1)seed(x+1,y);if(y>0)seed(x,y-1);if(y<H-1)seed(x,y+1);}
+  // dilate exterior by R (separable max), ring = solid AND near exterior bg
+  const dh=new Uint8Array(N);
+  for(let y=0;y<H;y++){const row=y*W;for(let x=0;x<W;x++){let m=0;for(let dx=-R;dx<=R;dx++){const xx=x+dx;if(xx>=0&&xx<W&&ext[row+xx]){m=1;break;}}dh[row+x]=m;}}
+  const ring=new Uint8Array(N);
+  for(let x=0;x<W;x++){for(let y=0;y<H;y++){const i=y*W+x;if(!bin[i]){ring[i]=0;continue;}let m=0;for(let dy=-R;dy<=R;dy++){const yy=y+dy;if(yy>=0&&yy<H&&dh[yy*W+x]){m=1;break;}}ring[i]=m?255:0;}}
+  return ring;
+}
+// fill any background region enclosed by an outline -> turns a stroke-only cut line into a solid silhouette
+function fillHoles(src,W,H){
+  const thr=40,N=W*H;const outside=new Uint8Array(N);const st=[];
+  function seed(x,y){const i=y*W+x;if(!outside[i]&&src[i]<thr){outside[i]=1;st.push(i);}}
+  for(let x=0;x<W;x++){seed(x,0);seed(x,H-1);} for(let y=0;y<H;y++){seed(0,y);seed(W-1,y);}
+  while(st.length){const i=st.pop(),x=i%W,y=(i/W)|0; if(x>0)seed(x-1,y);if(x<W-1)seed(x+1,y);if(y>0)seed(x,y-1);if(y<H-1)seed(x,y+1);}
+  const out=new Uint8Array(N); for(let i=0;i<N;i++) out[i]=(src[i]>=thr||!outside[i])?255:0; return out;
+}
+async function decodePdfToLayer(file){
+  if(!gsReady){ showErr('Engine still loading — wait for "Ready".'); return null; }
+  status('Reading '+file.name+'…');
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  status('Separating — running Ghostscript in your browser (~30s, may freeze briefly)…');
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const seps=await runTiffsep(bytes,200);
+  status('Decoding…'); await new Promise(r=>setTimeout(r,20));
+  let W=0,H=0; const redCh=[],FINISHES=[]; let ink=null;
+  for(const s of seps){
+    const ab=s.u8.buffer.slice(s.u8.byteOffset,s.u8.byteOffset+s.u8.byteLength);
+    let ifds; try{ifds=UTIF.decode(ab);UTIF.decodeImage(ab,ifds[0]);}catch(e){continue;}
+    const rgba=UTIF.toRGBA8(ifds[0]);const w=ifds[0].width,h=ifds[0].height;
+    let cov=0;for(let p=0;p<w*h;p++)if(rgba[p*4]<200)cov++;const frac=cov/(w*h);
+    if(frac<0.0008) continue;                  // truly empty plate
+    if(!W){W=w;H=h;ink=new Uint8Array(W*H);}
+    if(w!==W||h!==H) continue;
+    const r=new Uint8Array(w*h);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const v=255-rgba[(y*w+x)*4];const idx=(h-1-y)*w+x;r[idx]=v;if(v>ink[idx])ink[idx]=v;}
+    if(!PROCESS.has(s.name.trim().toLowerCase())){ redCh.push(r); FINISHES.push(classify(s.name)); }
+  }
+  status('');
+  if(!ink){ showErr('Nothing readable in '+file.name+'.'); return null; }
+  const solid=fillHoles(ink,W,H);
+  let ic=0,sc=0; for(let i=0;i<W*H;i++){ if(ink[i]>128)ic++; if(solid[i]>128)sc++; }
+  const isOutline=(sc-ic) > 0.55*sc;   // interior mostly empty -> a stroke outline; else a filled shape -> keep its holes
+  const fillH=isOutline;
+  const shape=fillH?solid:ink;
+  console.log('decoded',file.name,'finishes:',FINISHES.map(f=>f.name),'| fillHoles default:',fillH);
+  const base={id:++idc,name:file.name.replace(/\.pdf$/i,''),W,H,holesShape:ink,solidShape:solid,fillHoles:fillH,shape,thick:0.125,scale:1.0,opacity:0.16};
+  if(FINISHES.length){ return Object.assign(base,{kind:'printed',redCh,FINISHES,enabled:FINISHES.map(()=>1),colorHex:'#0a0a0c'}); }
+  return Object.assign(base,{kind:'clear',thick:0.25,colorHex:'#dfe7f2',opacity:0.16});
+}
+function roundRectShape(W,H,r){const a=new Uint8Array(W*H);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let inside=true;
+    const cx=Math.min(x,W-1-x),cy=Math.min(y,H-1-y);
+    if(cx<r&&cy<r){ if((r-cx)*(r-cx)+(r-cy)*(r-cy)>r*r) inside=false; }
+    a[y*W+x]=inside?255:0;} return a;}
+function makeBlankLayer(){
+  let W=1000,H=1400,shape;
+  const printed=layers.find(l=>l.kind==='printed');
+  if(printed){ W=printed.W;H=printed.H;shape=printed.shape.slice(); } else { shape=roundRectShape(W,H,Math.round(Math.min(W,H)*0.12)); }
+  return {id:++idc, name:'Acrylic sheet', kind:'clear', W,H, shape, holesShape:shape.slice(), solidShape:shape.slice(), fillHoles:true, thick:0.25, scale:1.0, colorHex:'#dfe7f2', opacity:0.14};
+}
+async function addPdf(file){ const L=await decodePdfToLayer(file); if(!L) return;
+  if(!renderer) initRenderer(); buildLayerTex(L); layers.push(L); $('overlay').style.display='none'; $('panelMain').style.display='block';
+  rebuildStack(); buildLayersUI(); }
+function addBlank(){ if(!renderer) initRenderer(); $('overlay').style.display='none';
+  const L=makeBlankLayer(); buildLayerTex(L); layers.push(L); rebuildStack(); buildLayersUI(); }
+
+// ================= textures per layer =================
+function hash(n){const s=Math.sin(n*12.9898)*43758.5453;return s-Math.floor(s);}
+function mkTex(arr,W,H,enc,nearest){const t=new THREE.DataTexture(arr,W,H,THREE.RGBAFormat);t.needsUpdate=true;
+  t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;const fl=nearest?THREE.NearestFilter:THREE.LinearFilter;
+  t.minFilter=fl;t.magFilter=fl;t.generateMipmaps=false;t.anisotropy=renderer?renderer.capabilities.getMaxAnisotropy():1;
+  if(enc)t.encoding=enc;return t;}
+function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
+  // shape alpha (for every kind)
+  const alp=new Uint8ClampedArray(N*4);
+  for(let p=0;p<N;p++){const v=L.shape[p];const o=p*4;alp[o]=alp[o+1]=alp[o+2]=v;alp[o+3]=255;}
+  L.tex={alpha:mkTex(alp,W,H,null,false)};
+  if(L.kind==='clear'||L.kind==='frosted'){ const R=Math.max(3,Math.round(Math.min(W,H)*0.007));
+    const ring=makeRing(L.shape,W,H,R); const ra=new Uint8ClampedArray(N*4);
+    for(let p=0;p<N;p++){const o=p*4;ra[o]=ra[o+1]=ra[o+2]=ring[p];ra[o+3]=255;} L.tex.ring=mkTex(ra,W,H,null,false); }
+  if(L.kind!=='printed') return;
+  const alb=new Uint8ClampedArray(N*4),orm=new Uint8ClampedArray(N*4),flakeMask=new Uint8Array(N);
+  const NF=L.FINISHES.length;
+  for(let p=0;p<N;p++){let best=-1,bv=0;for(let i=0;i<NF;i++){const v=L.redCh[i][p]*L.enabled[i];if(v>bv){bv=v;best=i;}}
+    const o=p*4;
+    if(best<0||bv<40){alb[o]=12;alb[o+1]=12;alb[o+2]=14;alb[o+3]=255;orm[o]=0;orm[o+1]=153;orm[o+2]=0;orm[o+3]=255;continue;}
+    const f=L.FINISHES[best];
+    alb[o]=Math.round(Math.pow(f.col[0],1/2.2)*255);alb[o+1]=Math.round(Math.pow(f.col[1],1/2.2)*255);alb[o+2]=Math.round(Math.pow(f.col[2],1/2.2)*255);alb[o+3]=255;
+    orm[o]=Math.round(f.clear*255);orm[o+1]=Math.round(f.rough*255);orm[o+2]=Math.round(f.metal*255);orm[o+3]=255;
+    if(f.flake) flakeMask[p]=1;
+  }
+  // FINE metallic-flake normal map, baked at 2x the artwork resolution so the grain is much finer
+  const F=2, NW=W*F, NH=H*F; const nrm=new Uint8ClampedArray(NW*NH*4);
+  for(let y=0;y<NH;y++){ const row=((y/F)|0)*W;
+    for(let x=0;x<NW;x++){ const o=(y*NW+x)*4;
+      if(flakeMask[row+((x/F)|0)]){ const q=y*NW+x; nrm[o]=Math.round(128+(hash(q)-0.5)*150); nrm[o+1]=Math.round(128+(hash(q*1.7+11)-0.5)*150); nrm[o+2]=255; nrm[o+3]=255; }
+      else { nrm[o]=128; nrm[o+1]=128; nrm[o+2]=255; nrm[o+3]=255; }
+    }
+  }
+  L.tex.albedo=mkTex(alb,W,H,THREE.sRGBEncoding,true);   // NEAREST -> crisp finish boundaries (kills the thin gloss seam)
+  L.tex.orm=mkTex(orm,W,H,null,true);
+  L.tex.normal=mkTex(nrm,NW,NH,null,true);               // 2x-res flake normal
+}
+
+// ================= scene =================
+let renderer,scene,camera,mesh,pmrem,studioEnv,photoEnv=null,baseCamZ=4.4,envInt=1.0;
+let envMood='studio', keyX=512, keyY=95, keyR=240, backdrop='studio', pedestal=false;
+// mood -> [grad top, upper, lower, bottom, key-tint rgb, ambient level]
+const MOODS={ studio:['#33373f','#0e1014','#0a0c10','#15171c','255,255,255',0.10],
+  showroom:['#4a443c','#231f1a','#1c1915','#2a2620','255,236,206',0.12],
+  soft:['#c2c7cf','#a6acb5','#9aa0a9','#b4b9c1','255,255,255',0.30],
+  dramatic:['#0a0b0e','#050608','#040506','#0a0c10','255,255,255',0.04],
+  daylight:['#9fc6ef','#7aa6d6','#86909a','#5a5e65','235,245,255',0.18],
+  night:['#14161e','#0a0b0f','#090a0e','#101319','255,225,190',0.06] };
+function makeEnv(){const cv=document.createElement('canvas');cv.width=1024;cv.height=512;const x=cv.getContext('2d');
+  const g=x.createLinearGradient(0,0,0,512);const m=MOODS[envMood]||MOODS.studio;
+  g.addColorStop(0,m[0]);g.addColorStop(0.45,m[1]);g.addColorStop(0.62,m[2]);g.addColorStop(1,m[3]);x.fillStyle=g;x.fillRect(0,0,1024,512);
+  function lamp(cx,cy,w,h,a,col){const rg=x.createRadialGradient(cx,cy,0,cx,cy,Math.max(w,h));rg.addColorStop(0,'rgba('+col+','+a+')');rg.addColorStop(1,'rgba('+col+',0)');x.fillStyle=rg;x.fillRect(cx-w,cy-h,w*2,h*2);}
+  x.globalCompositeOperation='lighter';
+  lamp(170,300,150,200,m[5],m[4]); lamp(854,320,160,210,m[5]*0.9,m[4]);          // soft ambient fills
+  lamp(keyX,keyY,keyR,keyR*0.72,1.0,m[4]);                                         // KEY light (size+position)
+  lamp(keyX,keyY,keyR*1.9,keyR*1.25,0.22,m[4]);                                    // key halo
+  x.globalCompositeOperation='source-over';
+  const t=new THREE.CanvasTexture(cv);t.mapping=THREE.EquirectangularReflectionMapping;t.encoding=THREE.sRGBEncoding;return t;}
+function applyEnv(){ const eq=makeEnv(); const tx=pmrem.fromEquirectangular(eq).texture; eq.dispose();
+  if(studioEnv&&studioEnv.dispose)studioEnv.dispose(); studioEnv=tx; photoEnv=null; scene.environment=tx; applyBackdrop(); }
+function applyBackdrop(){ const s=$('stage');
+  if(backdrop==='environment'){ scene.background=(photoEnv||studioEnv); s.style.background='#000'; return; }
+  scene.background=null;
+  const css={ studio:'radial-gradient(130% 130% at 50% 0%,#23262f 0%,#0a0b0e 70%)', black:'#050507',
+    charcoal:'#15171b', white:'#d7dade', warm:'linear-gradient(180deg,#2a201a,#0c0907)',
+    bluegrad:'linear-gradient(180deg,#33506e,#0a0d12)', sunset:'linear-gradient(180deg,#6b3b2e,#160d10)',
+    marble:'radial-gradient(120% 120% at 50% 10%,#e9eaee 0%,#b9bcc4 55%,#8d9098 100%)',
+    velvet:'radial-gradient(120% 120% at 50% 0%,#5a1f28 0%,#2a0c12 60%,#120508 100%)',
+    emerald:'radial-gradient(120% 120% at 50% 0%,#1f5d4a 0%,#0c2a22 60%,#06120e 100%)',
+    champagne:'linear-gradient(180deg,#caa86a 0%,#5a4a2e 55%,#1c1610 100%)' };
+  s.style.background=css[backdrop]||css.studio; }
+function loadHDRI(slug){ if(typeof THREE.RGBELoader==='undefined'){ showErr('Scene loader did not load (check connection).'); return; }
+  status('Loading scene… (first time downloads the HDRI)');
+  new THREE.RGBELoader().load('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/'+slug+'_1k.hdr',
+    tex=>{ tex.mapping=THREE.EquirectangularReflectionMapping; const env=pmrem.fromEquirectangular(tex).texture; tex.dispose();
+      if(photoEnv&&photoEnv.dispose)photoEnv.dispose(); photoEnv=env; scene.environment=env; scene.background=env; $('stage').style.background='#000'; status(''); },
+    undefined, ()=>{ status(''); showErr('Could not load that scene (network/CORS). Try another or use the lighting presets.'); }); }
+function initRenderer(){
+  renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.10;
+  scene=new THREE.Scene();scene.background=null;
+  camera=new THREE.PerspectiveCamera(26,1,0.1,100);camera.position.set(0,0,baseCamZ);
+  pmrem=new THREE.PMREMGenerator(renderer);pmrem.compileEquirectangularShader();
+  const eq=makeEnv();studioEnv=pmrem.fromEquirectangular(eq).texture;eq.dispose();scene.environment=studioEnv;applyBackdrop();
+  const k=new THREE.DirectionalLight(0xffffff,0.45);k.position.set(-1.2,1.4,2.0);scene.add(k);
+  const f=new THREE.DirectionalLight(0xbfd0ff,0.18);f.position.set(1.5,-0.6,1.0);scene.add(f);
+  resize();window.addEventListener('resize',resize);wireUI();animate();
+}
+function tw(L){ return L.thick*2/REFH; }            // world thickness
+function rebuildStack(){
+  if(mesh){ scene.remove(mesh); mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.dispose)o.material.dispose();}); }
+  mesh=new THREE.Group();
+  let T=0; layers.forEach(L=>T+=tw(L)); let zc=-T/2;
+  layers.forEach(L=>{ const t=tw(L), cz=zc+t/2; zc+=t;
+    const aspect=L.W/L.H, ph=2.0*L.scale, pw=ph*aspect; const geo=new THREE.PlaneGeometry(pw,ph,1,1);
+    const sub=new THREE.Group(); sub.position.z=cz;
+    const SL=Math.max(28,Math.round(t*1100));   // dense slices -> the side edge reads as one solid band
+    const al=L.tex.alpha;
+    if(L.kind==='printed'){
+      const mat=new THREE.MeshPhysicalMaterial({map:L.tex.albedo,metalnessMap:L.tex.orm,roughnessMap:L.tex.orm,clearcoatMap:L.tex.orm,
+        metalness:1,roughness:1,clearcoat:1,clearcoatRoughness:0.06,normalMap:L.tex.normal,normalScale:new THREE.Vector2(1.0,1.0),
+        alphaMap:al,alphaTest:0.4,transparent:false,envMapIntensity:envInt});
+      const edge=new THREE.MeshPhysicalMaterial({color:0x070709,roughness:0.42,metalness:0,clearcoat:0.3,clearcoatRoughness:0.35,alphaMap:al,alphaTest:0.45,transparent:false,side:THREE.DoubleSide});
+      L._mat=mat;
+      for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,edge);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
+      const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
+    } else if(L.kind==='clear'||L.kind==='frosted'){
+      const frosted=(L.kind==='frosted');
+      const op=(L.opacity!==undefined?L.opacity:(frosted?0.55:0.16));
+      const mat=new THREE.MeshPhysicalMaterial({color:new THREE.Color(L.colorHex),metalness:0,
+        roughness:frosted?0.72:0.04, clearcoat:frosted?0.0:1.0, clearcoatRoughness:0.03,
+        transparent:true,opacity:op,depthWrite:false,alphaMap:al,side:THREE.DoubleSide,envMapIntensity:frosted?envInt*0.8:envInt});
+      // edge is a perimeter ring only (so the face stays see-through); frosted=matte band, clear=glassy band
+      const ec=new THREE.Color(L.colorHex).lerp(new THREE.Color(0xffffff),frosted?0.25:0.45);
+      const edge=new THREE.MeshPhysicalMaterial({color:ec,metalness:0,roughness:frosted?0.55:0.18,clearcoat:frosted?0:0.6,clearcoatRoughness:0.12,alphaMap:(L.tex.ring||al),alphaTest:0.45,transparent:false,side:THREE.DoubleSide,envMapIntensity:envInt});
+      L._mat=mat;
+      for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,edge);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
+      const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
+    } else { // solid colored sheet
+      const c=new THREE.Color(L.colorHex);
+      const mat=new THREE.MeshPhysicalMaterial({color:c,metalness:0,roughness:0.5,clearcoat:0.25,clearcoatRoughness:0.4,alphaMap:al,alphaTest:0.4,transparent:false,side:THREE.DoubleSide,envMapIntensity:envInt});
+      L._mat=mat;
+      for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,mat);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
+      const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
+    }
+    mesh.add(sub);
+  });
+  scene.add(mesh);
+  if(pedestal) setPedestal(true);   // rebuild floor + reflection for the new stack
+}
+function resize(){const s=$('stage');renderer.setSize(s.clientWidth,s.clientHeight,false);camera.aspect=s.clientWidth/s.clientHeight;camera.updateProjectionMatrix();}
+let tilt={x:0,y:0},target={x:0,y:0},dragging=false,last={x:0,y:0},autorot=false,zoom=1,pan={x:0,y:0},panTarget={x:0,y:0},rotSpeed=0.004;
+let floorMesh=null, reflMesh=null; const FLOORY=-1.06;
+const MIRROR=new THREE.Matrix4().set(1,0,0,0, 0,-1,0,2*FLOORY, 0,0,1,0, 0,0,0,1);
+function setPedestal(on){ pedestal=on;
+  if(floorMesh){scene.remove(floorMesh);floorMesh.geometry.dispose();floorMesh.material.dispose();floorMesh=null;}
+  if(reflMesh){scene.remove(reflMesh);reflMesh=null;}
+  if(on&&mesh){
+    const fm=new THREE.MeshPhysicalMaterial({color:0x04050a,roughness:0.06,metalness:0,clearcoat:1,clearcoatRoughness:0.04,transparent:true,opacity:0.6,depthWrite:false,envMapIntensity:1.3});
+    floorMesh=new THREE.Mesh(new THREE.PlaneGeometry(40,40),fm);floorMesh.rotation.x=-Math.PI/2;floorMesh.position.y=FLOORY;floorMesh.renderOrder=2;scene.add(floorMesh);
+    reflMesh=mesh.clone(true);
+    reflMesh.traverse(o=>{ if(o.isMesh&&o.material){ o.material=o.material.clone(); o.material.side=THREE.DoubleSide; o.material.transparent=true; o.material.opacity=(o.material.opacity!==undefined?o.material.opacity:1)*0.5; o.material.depthWrite=false; o.renderOrder=1; } });
+    reflMesh.matrixAutoUpdate=false; scene.add(reflMesh);
+  }
+}
+function animate(){requestAnimationFrame(animate);if(autorot)target.y+=rotSpeed;
+  tilt.x+=(target.x-tilt.x)*0.08;tilt.y+=(target.y-tilt.y)*0.08;
+  if(mesh){mesh.rotation.x=tilt.x;mesh.rotation.y=tilt.y;mesh.updateMatrix();}
+  pan.x+=(panTarget.x-pan.x)*0.18;pan.y+=(panTarget.y-pan.y)*0.18;
+  if(pedestal){
+    camera.position.set(pan.x, 0.95+pan.y, baseCamZ*zoom*1.3); camera.lookAt(pan.x, -0.45, 0);
+    if(reflMesh&&mesh){ reflMesh.matrix.multiplyMatrices(MIRROR, mesh.matrix); reflMesh.matrixWorldNeedsUpdate=true; }
+  } else {
+    camera.position.set(pan.x,pan.y,baseCamZ*zoom); camera.lookAt(pan.x,pan.y,0);
+  }
+  renderer.render(scene,camera);}
+
+// ================= layers UI =================
+function buildLayersUI(){const c=$('layers');c.innerHTML='';
+  // render top-first in the list (visually top layer at top)
+  for(let idx=layers.length-1; idx>=0; idx--){ const L=layers[idx];
+    const el=document.createElement('div');el.className='layer';
+    const isSolidish=(L.kind==='clear'||L.kind==='solid'||L.kind==='frosted');
+    el.innerHTML=
+      '<div class="top"><span class="nm" data-a="name" contenteditable="true" spellcheck="false" title="click to rename">'+L.name+'</span>'+
+      '<span class="ic" data-a="up">↑</span><span class="ic" data-a="dn">↓</span><span class="ic" data-a="rm">✕</span></div>'+
+      '<div class="ctl">'+
+        '<label>Type<select data-a="kind">'+
+          '<option value="printed"'+(L.kind==='printed'?' selected':'')+(L.redCh?'':' disabled')+'>printed</option>'+
+          '<option value="clear"'+(L.kind==='clear'?' selected':'')+'>clear acrylic</option>'+
+          '<option value="frosted"'+(L.kind==='frosted'?' selected':'')+'>frosted acrylic</option>'+
+          '<option value="solid"'+(L.kind==='solid'?' selected':'')+'>colored acrylic</option>'+
+        '</select></label>'+
+        '<label>Thickness<select data-a="thick">'+
+          ['1/16','1/8','1/4'].map((t,i)=>{const v=[0.0625,0.125,0.25][i];return '<option value="'+v+'"'+(Math.abs(L.thick-v)<1e-4?' selected':'')+'>'+t+'&quot;</option>';}).join('')+
+        '</select></label>'+
+        '<label>Scale <span style="color:var(--accent)">'+Math.round(L.scale*100)+'%</span><input type="range" data-a="scale" min="50" max="150" value="'+Math.round(L.scale*100)+'" style="width:100%"></label>'+
+        '<label>Color<input type="color" data-a="color" value="'+L.colorHex+'" '+(isSolidish?'':'disabled')+'></label>'+
+        ((L.kind==='clear'||L.kind==='frosted')?'<label style="grid-column:1/3">See‑through <span style="color:var(--accent)">'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'%</span><input type="range" data-a="seethru" min="0" max="97" value="'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'" style="width:100%"></label>':'')+
+        '<label style="grid-column:1/3;flex-direction:row;align-items:center;gap:6px;font-size:10.5px"><input type="checkbox" data-a="fillh"'+(L.fillHoles?' checked':'')+'> Fill interior <span style="color:var(--muted)">— uncheck to keep screw holes / cutouts</span></label>'+
+      '</div>'+
+      ((L.kind==='printed'&&L.FINISHES)?'<div class="finsw">'+L.FINISHES.map((f,i)=>{const hex='#'+f.col.map(c=>Math.round(Math.pow(c,1/2.2)*255).toString(16).padStart(2,'0')).join('');return '<label class="fsw"><input type="checkbox" data-fin="'+i+'"'+(L.enabled[i]?' checked':'')+'><span class="chip" style="background:'+hex+'"></span>'+f.name+'</label>';}).join('')+'</div>':'');
+    el.querySelectorAll('[data-a]').forEach(node=>{const a=node.getAttribute('data-a');
+      if(a==='up') node.onclick=()=>move(idx,1);
+      else if(a==='dn') node.onclick=()=>move(idx,-1);
+      else if(a==='rm') node.onclick=()=>{layers.splice(idx,1);rebuildStack();buildLayersUI();};
+      else if(a==='kind') node.onchange=e=>{ L.kind=e.target.value;
+        if(L.kind==='clear'){ if(!L._userColor) L.colorHex='#dfe7f2'; if(L.opacity===undefined||L.opacity>0.5) L.opacity=0.14; }
+        else if(L.kind==='frosted'){ if(!L._userColor) L.colorHex='#e9edf2'; if(L.opacity===undefined||L.opacity<0.30) L.opacity=0.55; }
+        buildLayerTex(L);rebuildStack();buildLayersUI(); };
+      else if(a==='thick') node.onchange=e=>{L.thick=parseFloat(e.target.value);rebuildStack();};
+      else if(a==='scale') node.oninput=e=>{L.scale=e.target.value/100;rebuildStack();buildLayersUI();};
+      else if(a==='color') node.oninput=e=>{L.colorHex=e.target.value;L._userColor=true;rebuildStack();};
+      else if(a==='seethru') node.oninput=e=>{L.opacity=1-e.target.value/100;if(L._mat)L._mat.opacity=L.opacity;const sp=node.parentNode.querySelector('span');if(sp)sp.textContent=e.target.value+'%';};
+      else if(a==='fillh') node.onchange=e=>{L.fillHoles=e.target.checked;L.shape=L.fillHoles?L.solidShape:L.holesShape;buildLayerTex(L);rebuildStack();};
+      else if(a==='name'){ node.oninput=()=>{L.name=node.textContent.trim();}; node.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();node.blur();}}; }
+    });
+    el.querySelectorAll('[data-fin]').forEach(node=>{ node.onchange=()=>{ const i=+node.getAttribute('data-fin'); L.enabled[i]=node.checked?1:0; buildLayerTex(L); rebuildStack(); }; });
+    c.appendChild(el);
+  }
+}
+function move(idx,dir){const j=idx+dir;if(j<0||j>=layers.length)return;const t=layers[idx];layers[idx]=layers[j];layers[j]=t;rebuildStack();buildLayersUI();}
+
+function loadEnvImage(url){const ldr=new THREE.TextureLoader();ldr.load(url,tex=>{tex.mapping=THREE.EquirectangularReflectionMapping;tex.encoding=THREE.sRGBEncoding;
+  photoEnv=pmrem.fromEquirectangular(tex).texture;tex.dispose();scene.environment=photoEnv;applyBackdrop();});}
+function wireUI(){const canvas=$('c');let panning=false;
+  canvas.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault();});
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  canvas.addEventListener('pointerdown',e=>{last={x:e.clientX,y:e.clientY};if(e.button===1||e.button===2)panning=true;else dragging=true;});
+  window.addEventListener('pointerup',()=>{dragging=false;panning=false;});
+  window.addEventListener('pointermove',e=>{ if(panning){const sc=(2*baseCamZ*zoom*Math.tan(13*Math.PI/180))/Math.max(1,$('stage').clientHeight);
+      panTarget.x-=(e.clientX-last.x)*sc;panTarget.y+=(e.clientY-last.y)*sc;last={x:e.clientX,y:e.clientY};return;}
+    if(dragging){target.y+=(e.clientX-last.x)*0.006;target.x+=(e.clientY-last.y)*0.006;target.x=Math.max(-0.9,Math.min(0.9,target.x));last={x:e.clientX,y:e.clientY};}});
+  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom*=(1+Math.sign(e.deltaY)*0.08);zoom=Math.max(0.22,Math.min(2.6,zoom));},{passive:false});
+  $('exp').oninput=e=>{renderer.toneMappingExposure=e.target.value/100;$('expV').textContent=(e.target.value/100).toFixed(2);};
+  $('envB').oninput=e=>{envInt=e.target.value/100;layers.forEach(L=>{if(L._mat)L._mat.envMapIntensity=envInt;});$('envBV').textContent=envInt.toFixed(2);};
+  $('auto').onchange=e=>autorot=e.target.checked;
+  $('reset').onclick=()=>{target={x:0,y:0};panTarget={x:0,y:0};zoom=1;autorot=false;$('auto').checked=false;};
+  $('envMood').onchange=e=>{envMood=e.target.value;applyEnv();};
+  $('keySize').oninput=e=>{keyR=+e.target.value;applyEnv();};
+  const KP={tl:[300,110],top:[512,80],tr:[724,110],left:[170,235],front:[512,300],right:[854,235]};
+  document.querySelectorAll('#keyPos .btn').forEach(b=>b.onclick=()=>{document.querySelectorAll('#keyPos .btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');const p=KP[b.dataset.pos];keyX=p[0];keyY=p[1];applyEnv();});
+  $('scene').onchange=e=>{ if(e.target.value) loadHDRI(e.target.value); else { applyEnv(); applyBackdrop(); } };
+  $('backdrop').onchange=e=>{ backdrop=e.target.value; if($('scene').value){ $('scene').value=''; applyEnv(); } applyBackdrop(); };
+  $('pedestal').onchange=e=>{setPedestal(e.target.checked);};
+  $('spin').oninput=e=>{rotSpeed=e.target.value/2000;};
+  $('envLoadBtn').onclick=()=>$('envFile').click();
+  $('envFile').onchange=e=>{const f=e.target.files[0];if(f)loadEnvImage(URL.createObjectURL(f));};
+  $('addBlank').onclick=addBlank;
+}
+function route(f){if(!f)return; if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)) addPdf(f).catch(e=>{console.error(e);status('');showErr('Error: '+(e.message||e));});
+  else if(f.type.startsWith('image')&&renderer) loadEnvImage(URL.createObjectURL(f)); }
+['dragenter','dragover'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();const dz=$('dz');if(dz&&$('overlay').style.display!=='none')dz.classList.add('hot');}));
+['dragleave','dragend'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();const dz=$('dz');if(dz)dz.classList.remove('hot');}));
+window.addEventListener('drop',e=>{e.preventDefault();const dz=$('dz');if(dz)dz.classList.remove('hot');route(e.dataTransfer.files[0]);});
+$('dz').addEventListener('click',()=>{const i=document.createElement('input');i.type='file';i.accept='application/pdf,.pdf';i.onchange=e=>route(e.target.files[0]);i.click();});
+$('addBlank').onclick=addBlank;   // works even before a PDF / renderer exists
+loadGs();
+</script>
+</body></html>

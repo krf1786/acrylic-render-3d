@@ -1,0 +1,13 @@
+# OS / editor cruft
+.DS_Store
+*.swp
+Thumbs.db
+
+# build / temp
+node_modules/
+*.tif
+*.tmp
+
+# generated previews
+*— preview.html
+*-preview.html

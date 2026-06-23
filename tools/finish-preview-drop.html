@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Finish Preview — drop a print PDF</title>
+<style>
+  :root{--bg:#0c0d11;--panel:#15171e;--panel2:#1c1f28;--line:#2a2e3a;--txt:#e8eaf0;--muted:#969cab;--accent:#c8a24a;}
+  *{box-sizing:border-box} html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;}
+  .wrap{display:flex;height:100%;}
+  .stage{flex:1;position:relative;background:radial-gradient(130% 130% at 50% 0%,#23262f 0%,#0a0b0e 70%);}
+  #c{width:100%;height:100%;display:block;cursor:grab;} #c:active{cursor:grabbing;}
+  .hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);color:var(--muted);font-size:12px;
+    background:rgba(0,0,0,.4);padding:6px 12px;border-radius:20px;pointer-events:none;display:none;}
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;}
+  .dz{border:2.5px dashed #39404e;border-radius:18px;padding:46px 60px;transition:.15s;max-width:560px;}
+  .dz.hot{border-color:var(--accent);background:rgba(200,162,74,.06);}
+  .dz h2{margin:0 0 8px;font-size:20px;font-weight:600;}
+  .dz p{margin:4px 0;color:var(--muted);font-size:13px;line-height:1.6;}
+  .big{font-size:42px;margin-bottom:10px;opacity:.8;}
+  .status{position:absolute;left:50%;bottom:46px;transform:translateX(-50%);color:var(--txt);font-size:13px;
+    background:rgba(0,0,0,.55);padding:9px 16px;border-radius:22px;display:none;align-items:center;gap:10px;}
+  .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .panel{width:320px;flex:none;background:var(--panel);border-left:1px solid var(--line);padding:18px 18px 40px;overflow-y:auto;}
+  h1{font-size:15px;margin:0 0 2px;} .sub{color:var(--muted);font-size:11.5px;margin:0 0 16px;line-height:1.5;}
+  .group{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 13px;margin-bottom:12px;}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px;font-weight:600;}
+  label.row{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;margin:9px 0;gap:10px;}
+  input[type=range]{width:150px;accent-color:var(--accent);}
+  .val{color:var(--accent);font-variant-numeric:tabular-nums;font-size:12px;min-width:46px;text-align:right;}
+  .btn{background:#0e0f13;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:12.5px;cursor:pointer;width:100%;}
+  .btn:hover{border-color:var(--accent);} .btn.active{border-color:var(--accent);color:var(--accent);}
+  .frow{display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0;}
+  .chip{width:14px;height:14px;border-radius:4px;border:1px solid rgba(255,255,255,.2);flex:none;}
+  .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .fkind{color:var(--muted);font-size:10.5px;}
+  input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;}
+  select{background:#0e0f13;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:11px;}
+  .seg{display:flex;gap:6px;margin-bottom:8px;} .seg .btn{padding:7px 6px;}
+  .err{color:#ff8585;font-size:12px;margin-top:10px;white-space:pre-wrap;}
+  #controls{display:none;}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="dz" id="dz">
+        <div class="big">⬇︎</div>
+        <h2>Drop a print PDF here</h2>
+        <p>It reads the named finish channels (gloss, matte, mirror foil…) and renders a photoreal 3D proof.</p>
+        <p style="margin-top:10px"><span id="engine">Loading the rendering engine… (~16&nbsp;MB, first time only)</span></p>
+        <div class="err" id="err"></div>
+      </div>
+    </div>
+    <div class="status" id="status"><div class="spin"></div><span id="statusTxt">Working…</span></div>
+    <div class="hint" id="hint">Drag to tilt · middle-drag (or right-drag) to pan · scroll to zoom · drop a photo to reflect · drop a PDF anytime</div>
+  </div>
+  <div class="panel">
+    <h1>Finish Preview</h1>
+    <p class="sub">Drop any print PDF that has named spot/finish channels. Finishes are detected and rendered with real environment reflections — no installs, no command line.</p>
+    <div id="controls">
+      <div class="group">
+        <h2>Environment</h2>
+        <div class="seg"><button class="btn active" id="envStudio">Studio</button><button class="btn" id="envLoadBtn">Load photo…</button></div>
+        <input type="file" id="envFile" accept="image/*" style="display:none">
+        <label class="row"><span>Exposure</span><input type="range" id="exp" min="20" max="240" value="110"><span class="val" id="expV">1.10</span></label>
+        <label class="row"><span>Env brightness</span><input type="range" id="envB" min="20" max="260" value="100"><span class="val" id="envBV">1.00</span></label>
+        <label class="row"><span>Show background</span><input type="checkbox" id="bgToggle"></label>
+      </div>
+      <div class="group">
+        <h2>View</h2>
+        <label class="row"><span>Auto-rotate</span><input type="checkbox" id="auto"></label>
+        <label class="row" style="margin-bottom:3px"><span>Acrylic thickness</span></label>
+        <div class="seg" id="thickSeg">
+          <button class="btn" data-t="0.0625">1/16&quot;</button>
+          <button class="btn" data-t="0.125">1/8&quot;</button>
+          <button class="btn active" data-t="0.25">1/4&quot;</button>
+        </div>
+        <button class="btn" id="reset" style="margin-top:8px">Reset view</button>
+      </div>
+      <div class="group">
+        <h2>Finishes</h2>
+        <div id="finishes"></div>
+      </div>
+      <button class="btn" id="newpdf">Open another PDF…</button>
+      <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none">
+    </div>
+  </div>
+</div>
+
+<script>globalThis.exports={};</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.js"></script>
+<script>
+const GS_WASM='https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.wasm';
+const $=id=>document.getElementById(id);
+function showErr(m){ $('err').textContent=m; }
+function status(t){ if(t){$('statusTxt').textContent=t;$('status').style.display='flex';} else $('status').style.display='none'; }
+
+// ---- load + compile Ghostscript wasm once ----
+let gsWasmModule=null, gsReady=false;
+async function loadGs(){
+  try{
+    if(typeof THREE==='undefined') throw new Error('three.js failed to load (check your connection).');
+    if(typeof UTIF==='undefined') throw new Error('UTIF failed to load (check your connection).');
+    if(!globalThis.exports || !globalThis.exports.Module) throw new Error('Ghostscript engine failed to load (check your connection).');
+    const resp=await fetch(GS_WASM); if(!resp.ok) throw new Error('Could not download the engine ('+resp.status+').');
+    const buf=await resp.arrayBuffer();
+    gsWasmModule=await WebAssembly.compile(buf);
+    gsReady=true; $('engine').textContent='Ready — drop a print PDF to begin.';
+  }catch(e){ showErr(String(e.message||e)); $('engine').textContent='Engine failed to load.'; }
+}
+const createGs=globalThis.exports.Module;
+
+async function runTiffsep(pdfBytes,dpi){
+  const mod=await createGs({ noInitialRun:true, noExitRuntime:true,
+    instantiateWasm:(imports,cb)=>{ WebAssembly.instantiate(gsWasmModule,imports).then(inst=>cb(inst,gsWasmModule)); return {}; },
+    print:t=>console.log('[gs]',t), printErr:t=>console.warn('[gs]',t) });
+  mod.FS.writeFile('in.pdf', pdfBytes);
+  try{ mod.callMain(['-q','-dBATCH','-dNOPAUSE','-dSAFER','-sDEVICE=tiffsep','-r'+dpi,'-o','out-%d.tif','in.pdf']); }catch(e){}
+  const files=mod.FS.readdir('/').filter(f=>/\(.+\)\.tif$/.test(f));
+  const seps=[];
+  for(const f of files){ const name=f.match(/\((.+)\)\.tif$/)[1]; const u8=mod.FS.readFile('/'+f); seps.push({name,u8}); }
+  return seps;
+}
+
+const PROCESS=new Set(['cyan','magenta','yellow','black']);
+function classify(name){
+  const n=name.toLowerCase(); let metal=0,col=[0.05,0.05,0.055],flake=0,rough,clear;
+  if(/silver|chrome/.test(n)||(/mirror/.test(n)&&!/gold/.test(n))||(/foil/.test(n)&&!/gold/.test(n))){metal=1;col=[0.95,0.96,1.0];}
+  else if(/gold|brass/.test(n)){metal=1;col=[1.0,0.82,0.42];}
+  else if(/copper|bronze|rose/.test(n)){metal=1;col=[0.96,0.64,0.45];}
+  else if(/white/.test(n)){col=[0.9,0.9,0.92];}
+  else if(/black/.test(n)){col=[0.05,0.05,0.055];}
+  if(/gloss|uv|shiny|glossy/.test(n)){rough=metal?0.06:0.10;clear=1.0;}
+  else if(/matt|soft|velvet/.test(n)){rough=metal?0.40:0.80;clear=0.0;flake=metal?1:0;}
+  else if(/satin/.test(n)){rough=0.25;clear=0.4;}
+  else {rough=metal?0.30:0.55;clear=0.3;}
+  const chip='#'+col.map(c=>Math.round(Math.pow(c,1/2.2)*255).toString(16).padStart(2,'0')).join('');
+  return {name,metal,col,rough,clear,flake,chip};
+}
+
+// ---- main: handle a dropped PDF ----
+let W=0,H=0,redCh=[],FINISHES=[],enabled=[];
+function showOverlayErr(m){ $('overlay').style.display='flex'; $('err').textContent=m; status(''); }
+async function handlePdf(file){
+ try{
+  if(!gsReady){ showOverlayErr('Engine still loading — wait for "Ready", then try again.'); return; }
+  showErr(''); $('overlay').style.display='flex';
+  console.log('handlePdf:', file.name, file.size, 'bytes');
+  status('Reading PDF…');
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  status('Separating finishes — running Ghostscript in your browser. Can take ~30s; the page may freeze briefly. Hang tight…');
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));  // ensure the message paints before the blocking call
+  const t0=performance.now();
+  console.log('tiffsep start…');
+  const seps=await runTiffsep(bytes,150);
+  console.log('tiffsep done in '+((performance.now()-t0)/1000).toFixed(1)+'s — channels:', seps.map(s=>s.name));
+  status('Decoding finishes…'); await new Promise(r=>setTimeout(r,20));
+  const fins=[], chans=[]; let w0=0,h0=0;
+  for(const s of seps){
+    const ab=s.u8.buffer.slice(s.u8.byteOffset, s.u8.byteOffset+s.u8.byteLength);
+    let ifds; try{ ifds=UTIF.decode(ab); UTIF.decodeImage(ab, ifds[0]); }catch(e){ console.warn('decode failed',s.name,e); continue; }
+    const rgba=UTIF.toRGBA8(ifds[0]); const w=ifds[0].width, h=ifds[0].height;
+    let cover=0; for(let p=0;p<w*h;p++){ if(rgba[p*4]<200) cover++; }
+    const frac=cover/(w*h);
+    const isProc=PROCESS.has(s.name.trim().toLowerCase());
+    if(frac<0.002){ console.log('skip empty:',s.name); continue; }
+    if(isProc && frac<0.02){ console.log('skip process:',s.name); continue; }
+    if(!w0){ w0=w; h0=h; }
+    const r=new Uint8Array(w*h);
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ r[(h-1-y)*w+x]=255-rgba[(y*w+x)*4]; }
+    chans.push(r); fins.push(classify(s.name));
+  }
+  if(!fins.length){ showOverlayErr('No finish channels found in this PDF.\nThis tool needs a print file with named spot finishes (Mirror Silver Gloss, Black Matt, etc.).'); return; }
+  W=w0; H=h0; redCh=chans; FINISHES=fins; enabled=fins.map(()=>1);
+  console.log('rendering',fins.length,'finishes at',W+'x'+H);
+  status(''); $('overlay').style.display='none'; $('hint').style.display='block'; $('controls').style.display='block';
+  buildOrRebuild();
+ }catch(e){ console.error('handlePdf error:',e); showOverlayErr('Something went wrong: '+(e&&e.message||e)+'\n(Press Cmd+Option+J to see details in the console.)'); }
+}
+
+// ============================ PBR viewer (same engine as before) ============================
+let renderer,scene,camera,mesh,material,pmrem,studioEnv,photoEnv=null,maps={},baseCamZ=4.4;
+let envInt=1.0, curT=0.25*2/11;   // acrylic thickness in world units (assumes ~11in tall piece)
+function makeStudioEnv(){const cv=document.createElement('canvas');cv.width=1024;cv.height=512;const x=cv.getContext('2d');
+  let g=x.createLinearGradient(0,0,0,512);g.addColorStop(0,'#3a3f49');g.addColorStop(0.42,'#0f1115');g.addColorStop(0.62,'#0a0c10');g.addColorStop(1,'#16181d');
+  x.fillStyle=g;x.fillRect(0,0,1024,512);x.globalCompositeOperation='lighter';
+  function box(cx,cy,w,h,a){const rg=x.createRadialGradient(cx,cy,0,cx,cy,Math.max(w,h));rg.addColorStop(0,'rgba(255,255,255,'+a+')');rg.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=rg;x.fillRect(cx-w,cy-h,w*2,h*2);}
+  box(320,120,240,90,0.95);box(720,140,220,80,0.8);box(520,70,300,60,0.7);box(160,300,120,160,0.18);box(880,320,140,180,0.16);
+  x.globalCompositeOperation='source-over';
+  const t=new THREE.CanvasTexture(cv);t.mapping=THREE.EquirectangularReflectionMapping;t.encoding=THREE.sRGBEncoding;return t;}
+function hash(n){const s=Math.sin(n*12.9898)*43758.5453;return s-Math.floor(s);}
+function buildMaps(){const N=W*H,NF=FINISHES.length;
+  const alb=new Uint8ClampedArray(N*4),orm=new Uint8ClampedArray(N*4),alpha=new Uint8ClampedArray(N*4),nrm=new Uint8ClampedArray(N*4);
+  for(let p=0;p<N;p++){let best=-1,bv=0,shape=0;
+    for(let i=0;i<NF;i++){const raw=redCh[i][p];if(raw>shape)shape=raw;const v=raw*enabled[i];if(v>bv){bv=v;best=i;}}
+    const o=p*4;alpha[o]=alpha[o+1]=alpha[o+2]=shape;alpha[o+3]=255;nrm[o]=128;nrm[o+1]=128;nrm[o+2]=255;nrm[o+3]=255;
+    if(best<0||bv<40){alb[o]=12;alb[o+1]=12;alb[o+2]=14;alb[o+3]=255;orm[o]=0;orm[o+1]=153;orm[o+2]=0;orm[o+3]=255;continue;}
+    const f=FINISHES[best];
+    alb[o]=Math.round(Math.pow(f.col[0],1/2.2)*255);alb[o+1]=Math.round(Math.pow(f.col[1],1/2.2)*255);alb[o+2]=Math.round(Math.pow(f.col[2],1/2.2)*255);alb[o+3]=255;
+    orm[o]=Math.round(f.clear*255);orm[o+1]=Math.round(f.rough*255);orm[o+2]=Math.round(f.metal*255);orm[o+3]=255;
+    if(f.flake){const a=hash(p),b=hash(p*1.7+11);nrm[o]=Math.round(128+(a-0.5)*120);nrm[o+1]=Math.round(128+(b-0.5)*120);}
+  }
+  function mk(arr,enc,nearest){const t=new THREE.DataTexture(arr,W,H,THREE.RGBAFormat);t.needsUpdate=true;
+    t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;const fl=nearest?THREE.NearestFilter:THREE.LinearFilter;
+    t.minFilter=fl;t.magFilter=fl;t.generateMipmaps=false;t.anisotropy=renderer?renderer.capabilities.getMaxAnisotropy():1;
+    if(enc)t.encoding=enc;return t;}
+  maps.albedo=mk(alb,THREE.sRGBEncoding,false);maps.orm=mk(orm,null,true);maps.alpha=mk(alpha,null,false);maps.normal=mk(nrm,null,true);
+}
+function initRenderer(){
+  renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.10;
+  scene=new THREE.Scene();scene.background=null;
+  camera=new THREE.PerspectiveCamera(26,1,0.1,100);camera.position.set(0,0,baseCamZ);
+  pmrem=new THREE.PMREMGenerator(renderer);pmrem.compileEquirectangularShader();
+  const eq=makeStudioEnv();studioEnv=pmrem.fromEquirectangular(eq).texture;eq.dispose();scene.environment=studioEnv;
+  const _k=new THREE.DirectionalLight(0xffffff,0.45);_k.position.set(-1.2,1.4,2.0);scene.add(_k);
+  const _f=new THREE.DirectionalLight(0xbfd0ff,0.18);_f.position.set(1.5,-0.6,1.0);scene.add(_f);
+  resize();window.addEventListener('resize',resize);wireUI();animate();
+}
+function buildOrRebuild(){
+  if(!renderer) initRenderer();
+  buildMaps();
+  buildSlab();
+  buildFinishUI();
+}
+// Build the slab: finished front face + a stack of dark slices that read as a real acrylic edge when tilted.
+function buildSlab(){
+  if(mesh){ scene.remove(mesh); mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();}); if(material)material.dispose(); }
+  const aspect=W/H,ph=2.0,pw=ph*aspect; const geo=new THREE.PlaneGeometry(pw,ph,1,1);
+  material=new THREE.MeshPhysicalMaterial({map:maps.albedo,metalnessMap:maps.orm,roughnessMap:maps.orm,clearcoatMap:maps.orm,
+    metalness:1.0,roughness:1.0,clearcoat:1.0,clearcoatRoughness:0.06,normalMap:maps.normal,normalScale:new THREE.Vector2(0.6,0.6),
+    alphaMap:maps.alpha,transparent:true,alphaTest:0.35,envMapIntensity:envInt});
+  const edgeMat=new THREE.MeshPhysicalMaterial({color:0x070709,roughness:0.42,metalness:0.0,clearcoat:0.3,clearcoatRoughness:0.35,
+    alphaMap:maps.alpha,alphaTest:0.45,transparent:false,side:THREE.DoubleSide});
+  const grp=new THREE.Group(); const t=curT, SL=14;
+  for(let i=0;i<SL;i++){ const z=-t/2 + t*(i/(SL-1)); const m=new THREE.Mesh(geo,edgeMat); m.position.z=z; grp.add(m); }
+  const front=new THREE.Mesh(geo,material); front.position.z=t/2+0.0006; grp.add(front);
+  mesh=grp; scene.add(mesh);
+}
+function resize(){const s=$('stage');renderer.setSize(s.clientWidth,s.clientHeight,false);camera.aspect=s.clientWidth/s.clientHeight;camera.updateProjectionMatrix();}
+let tilt={x:0,y:0},target={x:0,y:0},dragging=false,last={x:0,y:0},autorot=false,zoom=1,pan={x:0,y:0},panTarget={x:0,y:0};
+function animate(){requestAnimationFrame(animate);if(autorot)target.y+=0.004;
+  tilt.x+=(target.x-tilt.x)*0.08;tilt.y+=(target.y-tilt.y)*0.08;
+  if(mesh){mesh.rotation.x=tilt.x;mesh.rotation.y=tilt.y;}
+  pan.x+=(panTarget.x-pan.x)*0.18;pan.y+=(panTarget.y-pan.y)*0.18;
+  camera.position.set(pan.x,pan.y,baseCamZ*zoom);camera.lookAt(pan.x,pan.y,0);
+  renderer.render(scene,camera);}
+function rebuildMat(){buildMaps();material.map=maps.albedo;material.metalnessMap=maps.orm;material.roughnessMap=maps.orm;material.clearcoatMap=maps.orm;material.normalMap=maps.normal;material.alphaMap=maps.alpha;material.needsUpdate=true;}
+function applyOverride(i,v){const f=FINISHES[i];
+  if(v==='gloss'){f.rough=f.metal?0.06:0.10;f.clear=1.0;f.flake=0;}
+  else if(v==='matte'){f.rough=f.metal?0.40:0.80;f.clear=0.0;f.flake=f.metal?1:0;}
+  else if(v==='mirror'){f.rough=0.02;f.clear=1.0;f.flake=0;f.metal=1;}}
+function buildFinishUI(){const fw=$('finishes');fw.innerHTML='';
+  FINISHES.forEach((f,i)=>{const kind=(f.metal?'metal':'ink')+' · '+(f.clear>0.5?'gloss':(f.rough>0.5||f.flake?'matte':'satin'));
+    const row=document.createElement('div');row.className='frow';
+    row.innerHTML='<input type="checkbox" checked><span class="chip" style="background:'+f.chip+'"></span><span class="fname">'+f.name+'<br><span class="fkind">'+kind+'</span></span>'+
+      '<select data-i="'+i+'"><option value="auto">auto</option><option value="gloss">gloss</option><option value="matte">matte</option><option value="mirror">mirror</option></select>';
+    row.querySelector('input').onchange=ev=>{enabled[i]=ev.target.checked?1:0;rebuildMat();};
+    row.querySelector('select').onchange=ev=>{applyOverride(i,ev.target.value);rebuildMat();buildFinishUI();};
+    fw.appendChild(row);});}
+function setEnvBtn(id){['envStudio','envLoadBtn'].forEach(b=>$(b).classList.toggle('active',b===id));}
+function loadEnvImage(url){const ldr=new THREE.TextureLoader();ldr.load(url,tex=>{tex.mapping=THREE.EquirectangularReflectionMapping;tex.encoding=THREE.sRGBEncoding;
+  photoEnv=pmrem.fromEquirectangular(tex).texture;tex.dispose();scene.environment=photoEnv;if($('bgToggle').checked)scene.background=photoEnv;setEnvBtn('envLoadBtn');});}
+function wireUI(){const canvas=$('c');let panning=false;
+  canvas.addEventListener('mousedown',e=>{ if(e.button===1) e.preventDefault(); }); // stop middle-click autoscroll
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  canvas.addEventListener('pointerdown',e=>{ last={x:e.clientX,y:e.clientY};
+    if(e.button===1||e.button===2){ panning=true; } else { dragging=true; } });
+  window.addEventListener('pointerup',()=>{dragging=false;panning=false;});
+  window.addEventListener('pointermove',e=>{
+    if(panning){ const sc=(2*baseCamZ*zoom*Math.tan(13*Math.PI/180))/Math.max(1,$('stage').clientHeight);
+      panTarget.x-=(e.clientX-last.x)*sc; panTarget.y+=(e.clientY-last.y)*sc; last={x:e.clientX,y:e.clientY}; return; }
+    if(dragging){ target.y+=(e.clientX-last.x)*0.006; target.x+=(e.clientY-last.y)*0.006; target.x=Math.max(-0.7,Math.min(0.7,target.x)); last={x:e.clientX,y:e.clientY}; } });
+  canvas.addEventListener('wheel',e=>{e.preventDefault();zoom*=(1+Math.sign(e.deltaY)*0.08);zoom=Math.max(0.22,Math.min(2.6,zoom));},{passive:false});
+  $('exp').oninput=e=>{renderer.toneMappingExposure=e.target.value/100;$('expV').textContent=(e.target.value/100).toFixed(2);};
+  $('envB').oninput=e=>{envInt=e.target.value/100;if(material)material.envMapIntensity=envInt;$('envBV').textContent=envInt.toFixed(2);};
+  $('auto').onchange=e=>autorot=e.target.checked;
+  document.querySelectorAll('#thickSeg .btn').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#thickSeg .btn').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+    curT=parseFloat(b.dataset.t)*2/11; if(renderer&&W) buildSlab(); });
+  $('bgToggle').onchange=e=>{scene.background=e.target.checked?(photoEnv||studioEnv):null;};
+  $('reset').onclick=()=>{target={x:0,y:0};panTarget={x:0,y:0};zoom=1;autorot=false;$('auto').checked=false;};
+  $('envStudio').onclick=()=>{scene.environment=studioEnv;if($('bgToggle').checked)scene.background=studioEnv;setEnvBtn('envStudio');};
+  $('envLoadBtn').onclick=()=>$('envFile').click();
+  $('envFile').onchange=e=>{const f=e.target.files[0];if(f)loadEnvImage(URL.createObjectURL(f));};
+  $('newpdf').onclick=()=>$('pdfFile').click();
+  $('pdfFile').onchange=e=>{const f=e.target.files[0];if(f)handlePdf(f);};
+}
+
+// ---- global drag/drop on the WHOLE window (so the browser never swallows the file) ----
+function route(f){ if(!f){console.warn('drop: no file');return;}
+  console.log('routing file:', f.name, f.type);
+  if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)) handlePdf(f);
+  else if(f.type.startsWith('image')&&renderer) loadEnvImage(URL.createObjectURL(f));
+  else showErr('Drop a print PDF, or an image (to use as the reflection).'); }
+['dragenter','dragover'].forEach(ev=>window.addEventListener(ev,e=>{ e.preventDefault(); const dz=$('dz');
+  if(dz && $('overlay').style.display!=='none') dz.classList.add('hot'); }));
+['dragleave','dragend'].forEach(ev=>window.addEventListener(ev,e=>{ e.preventDefault(); const dz=$('dz'); if(dz) dz.classList.remove('hot'); }));
+window.addEventListener('drop',e=>{ e.preventDefault(); const dz=$('dz'); if(dz)dz.classList.remove('hot'); route(e.dataTransfer.files[0]); });
+$('dz').addEventListener('click',()=>{ const i=document.createElement('input'); i.type='file'; i.accept='application/pdf,.pdf'; i.onchange=e=>route(e.target.files[0]); i.click(); });
+
+loadGs();
+</script>
+</body></html>
