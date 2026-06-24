@@ -180,6 +180,27 @@ function fillHoles(src,W,H){
   while(st.length){const i=st.pop(),x=i%W,y=(i/W)|0; if(x>0)seed(x-1,y);if(x<W-1)seed(x+1,y);if(y>0)seed(x,y-1);if(y<H-1)seed(x,y+1);}
   const out=new Uint8Array(N); for(let i=0;i<N;i++) out[i]=(src[i]>=thr||!outside[i])?255:0; return out;
 }
+// EVEN-ODD fill for stroke-only artwork: fill the area between the outer outline and inner outlines,
+// treating nested loops as cutouts (no Pathfinder needed). Region depth = # of outlines crossed from outside.
+function fillEvenOdd(ink,W,H){
+  const thr=128,N=W*H; const wall=new Uint8Array(N); for(let i=0;i<N;i++) wall[i]=ink[i]>thr?1:0;
+  const dist=new Int32Array(N).fill(-1);
+  function flood(seeds,d,isWall){ const stack=seeds.slice();
+    while(stack.length){ const p=stack.pop(); if(p<0||p>=N||dist[p]>=0) continue; if(isWall?!wall[p]:wall[p]) continue; dist[p]=d;
+      const x=p%W,y=(p/W)|0; if(x>0)stack.push(p-1); if(x<W-1)stack.push(p+1); if(y>0)stack.push(p-W); if(y<H-1)stack.push(p+W); } }
+  const border=[]; for(let x=0;x<W;x++){border.push(x);border.push((H-1)*W+x);} for(let y=0;y<H;y++){border.push(y*W);border.push(y*W+W-1);}
+  flood(border,0,false);
+  let d=0;
+  while(d<60){ const ws=[]; for(let p=0;p<N;p++){ if(dist[p]!==d) continue; const x=p%W,y=(p/W)|0;
+      if(x>0&&wall[p-1]&&dist[p-1]<0)ws.push(p-1); if(x<W-1&&wall[p+1]&&dist[p+1]<0)ws.push(p+1);
+      if(y>0&&wall[p-W]&&dist[p-W]<0)ws.push(p-W); if(y<H-1&&wall[p+W]&&dist[p+W]<0)ws.push(p+W); }
+    if(!ws.length) break; flood(ws,d+1,true);
+    const bs=[]; for(let p=0;p<N;p++){ if(dist[p]!==d+1||!wall[p]) continue; const x=p%W,y=(p/W)|0;
+      if(x>0&&!wall[p-1]&&dist[p-1]<0)bs.push(p-1); if(x<W-1&&!wall[p+1]&&dist[p+1]<0)bs.push(p+1);
+      if(y>0&&!wall[p-W]&&dist[p-W]<0)bs.push(p-W); if(y<H-1&&!wall[p+W]&&dist[p+W]<0)bs.push(p+W); }
+    flood(bs,d+1,false); d++; }
+  const out=new Uint8Array(N); for(let i=0;i<N;i++){ out[i]= wall[i]?255:((dist[i]>0&&dist[i]%2===1)?255:0); } return out;
+}
 async function decodePdfToLayer(file){
   if(!gsReady){ showErr('Engine still loading — wait for "Ready".'); return null; }
   status('Reading '+file.name+'…');
@@ -203,13 +224,13 @@ async function decodePdfToLayer(file){
   }
   status('');
   if(!ink){ showErr('Nothing readable in '+file.name+'.'); return null; }
-  const solid=fillHoles(ink,W,H);
-  let ic=0,sc=0; for(let i=0;i<W*H;i++){ if(ink[i]>128)ic++; if(solid[i]>128)sc++; }
-  const isOutline=(sc-ic) > 0.55*sc;   // interior mostly empty -> a stroke outline; else a filled shape -> keep its holes
-  const fillH=isOutline;
-  const shape=fillH?solid:ink;
-  console.log('decoded',file.name,'finishes:',FINISHES.map(f=>f.name),'| fillHoles default:',fillH);
-  const base={id:++idc,name:file.name.replace(/\.pdf$/i,''),W,H,holesShape:ink,solidShape:solid,fillHoles:fillH,shape,thick:0.125,scale:1.0,opacity:0.16};
+  const solidFull=fillHoles(ink,W,H);   // full fill (no cutouts) — used only to detect a thin stroke outline
+  let ic=0,sc=0; for(let i=0;i<W*H;i++){ if(ink[i]>128)ic++; if(solidFull[i]>128)sc++; }
+  const isThinOutline=(sc-ic) > 2.5*ic;
+  // outline art -> EVEN-ODD fill (outer outline solid, nested inner outlines become cutouts); filled art -> keep its holes as-is
+  const shape = isThinOutline ? fillEvenOdd(ink,W,H) : ink;
+  console.log('decoded',file.name,'finishes:',FINISHES.map(f=>f.name),'| outline even-odd fill:',isThinOutline);
+  const base={id:++idc,name:file.name.replace(/\.pdf$/i,''),W,H,holesShape:shape,solidShape:solidFull,shape,thick:0.125,scale:1.0,opacity:0.16};
   if(FINISHES.length){ return Object.assign(base,{kind:'printed',redCh,FINISHES,enabled:FINISHES.map(()=>1),colorHex:'#0a0a0c'}); }
   return Object.assign(base,{kind:'clear',thick:0.25,colorHex:'#dfe7f2',opacity:0.16});
 }
@@ -240,7 +261,7 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
   // shape alpha (for every kind)
   const alp=new Uint8ClampedArray(N*4);
   for(let p=0;p<N;p++){const v=L.shape[p];const o=p*4;alp[o]=alp[o+1]=alp[o+2]=v;alp[o+3]=255;}
-  L.tex={alpha:mkTex(alp,W,H,null,false)};
+  L.tex={alpha:mkTex(alp,W,H,null,true)};   // NEAREST -> holes/cutouts stay crisp zeros so they cut on every layer type
   if(L.kind==='clear'||L.kind==='frosted'){ const R=Math.max(3,Math.round(Math.min(W,H)*0.007));
     const ring=makeRing(L.shape,W,H,R); const ra=new Uint8ClampedArray(N*4);
     for(let p=0;p<N;p++){const o=p*4;ra[o]=ra[o+1]=ra[o+2]=ring[p];ra[o+3]=255;} L.tex.ring=mkTex(ra,W,H,null,false); }
@@ -333,6 +354,7 @@ function rebuildStack(){
   mesh=new THREE.Group();
   let T=0; layers.forEach(L=>T+=tw(L)); let zc=-T/2;
   layers.forEach(L=>{ const t=tw(L), cz=zc+t/2; zc+=t;
+    if(L.hidden) return;   // eyeball-hidden: keep its slot in the stack but don't render it
     const aspect=L.W/L.H, ph=2.0*L.scale, pw=ph*aspect; const geo=new THREE.PlaneGeometry(pw,ph,1,1);
     const sub=new THREE.Group(); sub.position.z=cz;
     const SL=Math.max(28,Math.round(t*1100));   // dense slices -> the side edge reads as one solid band
@@ -351,9 +373,8 @@ function rebuildStack(){
       const mat=new THREE.MeshPhysicalMaterial({color:new THREE.Color(L.colorHex),metalness:0,
         roughness:frosted?0.72:0.04, clearcoat:frosted?0.0:1.0, clearcoatRoughness:0.03,
         transparent:true,opacity:op,depthWrite:false,alphaMap:al,side:THREE.DoubleSide,envMapIntensity:frosted?envInt*0.8:envInt});
-      // edge is a perimeter ring only (so the face stays see-through); frosted=matte band, clear=glassy band
-      const ec=new THREE.Color(L.colorHex).lerp(new THREE.Color(0xffffff),frosted?0.25:0.45);
-      const edge=new THREE.MeshPhysicalMaterial({color:ec,metalness:0,roughness:frosted?0.55:0.18,clearcoat:frosted?0:0.6,clearcoatRoughness:0.12,alphaMap:(L.tex.ring||al),alphaTest:0.45,transparent:false,side:THREE.DoubleSide,envMapIntensity:envInt});
+      // edge is a perimeter ring only (so the face stays see-through). Neutral dark-gray cut edge (rgb 50,50,50).
+      const edge=new THREE.MeshPhysicalMaterial({color:0x323232,metalness:0,roughness:0.6,clearcoat:0.0,alphaMap:(L.tex.ring||al),alphaTest:0.45,transparent:false,side:THREE.DoubleSide,envMapIntensity:0.35});
       L._mat=mat;
       for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,edge);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
       const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
@@ -404,6 +425,7 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
     const isSolidish=(L.kind==='clear'||L.kind==='solid'||L.kind==='frosted');
     el.innerHTML=
       '<div class="top"><span class="nm" data-a="name" contenteditable="true" spellcheck="false" title="click to rename">'+L.name+'</span>'+
+      '<span class="ic" data-a="hide" title="show / hide layer" style="font-size:11px;'+(L.hidden?'opacity:.4':'')+'">👁</span>'+
       '<span class="ic" data-a="up">↑</span><span class="ic" data-a="dn">↓</span><span class="ic" data-a="rm">✕</span></div>'+
       '<div class="ctl">'+
         '<label>Type<select data-a="kind">'+
@@ -418,11 +440,11 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
         '<label>Scale <span style="color:var(--accent)">'+Math.round(L.scale*100)+'%</span><input type="range" data-a="scale" min="50" max="150" value="'+Math.round(L.scale*100)+'" style="width:100%"></label>'+
         '<label>Color<input type="color" data-a="color" value="'+L.colorHex+'" '+(isSolidish?'':'disabled')+'></label>'+
         ((L.kind==='clear'||L.kind==='frosted')?'<label style="grid-column:1/3">See‑through <span style="color:var(--accent)">'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'%</span><input type="range" data-a="seethru" min="0" max="97" value="'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'" style="width:100%"></label>':'')+
-        '<label style="grid-column:1/3;flex-direction:row;align-items:center;gap:6px;font-size:10.5px"><input type="checkbox" data-a="fillh"'+(L.fillHoles?' checked':'')+'> Fill interior <span style="color:var(--muted)">— uncheck to keep screw holes / cutouts</span></label>'+
       '</div>'+
       ((L.kind==='printed'&&L.FINISHES)?'<div class="finsw">'+L.FINISHES.map((f,i)=>{const hex='#'+f.col.map(c=>Math.round(Math.pow(c,1/2.2)*255).toString(16).padStart(2,'0')).join('');return '<label class="fsw"><input type="checkbox" data-fin="'+i+'"'+(L.enabled[i]?' checked':'')+'><span class="chip" style="background:'+hex+'"></span>'+f.name+'</label>';}).join('')+'</div>':'');
     el.querySelectorAll('[data-a]').forEach(node=>{const a=node.getAttribute('data-a');
-      if(a==='up') node.onclick=()=>move(idx,1);
+      if(a==='hide') node.onclick=()=>{L.hidden=!L.hidden;rebuildStack();buildLayersUI();};
+      else if(a==='up') node.onclick=()=>move(idx,1);
       else if(a==='dn') node.onclick=()=>move(idx,-1);
       else if(a==='rm') node.onclick=()=>{layers.splice(idx,1);rebuildStack();buildLayersUI();};
       else if(a==='kind') node.onchange=e=>{ L.kind=e.target.value;
@@ -433,7 +455,6 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
       else if(a==='scale') node.oninput=e=>{L.scale=e.target.value/100;rebuildStack();buildLayersUI();};
       else if(a==='color') node.oninput=e=>{L.colorHex=e.target.value;L._userColor=true;rebuildStack();};
       else if(a==='seethru') node.oninput=e=>{L.opacity=1-e.target.value/100;if(L._mat)L._mat.opacity=L.opacity;const sp=node.parentNode.querySelector('span');if(sp)sp.textContent=e.target.value+'%';};
-      else if(a==='fillh') node.onchange=e=>{L.fillHoles=e.target.checked;L.shape=L.fillHoles?L.solidShape:L.holesShape;buildLayerTex(L);rebuildStack();};
       else if(a==='name'){ node.oninput=()=>{L.name=node.textContent.trim();}; node.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();node.blur();}}; }
     });
     el.querySelectorAll('[data-fin]').forEach(node=>{ node.onchange=()=>{ const i=+node.getAttribute('data-fin'); L.enabled[i]=node.checked?1:0; buildLayerTex(L); rebuildStack(); }; });
