@@ -269,7 +269,7 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
 }
 
 // ================= scene =================
-let renderer,scene,camera,mesh,pmrem,studioEnv,photoEnv=null,baseCamZ=4.4,envInt=1.0,envRaw=null;
+let renderer,scene,camera,mesh,pmrem,studioEnv,photoEnv=null,baseCamZ=4.4,envInt=1.0,envRaw=null,skybox=null;
 let envMood='studio', keyX=512, keyY=95, keyR=240, backdrop='studio', pedestal=false;
 // mood -> [grad top, upper, lower, bottom, key-tint rgb, ambient level]
 const MOODS={ studio:['#33373f','#0e1014','#0a0c10','#15171c','255,255,255',0.10],
@@ -291,9 +291,12 @@ function makeEnv(){const cv=document.createElement('canvas');cv.width=1024;cv.he
 function applyEnv(){ const eq=makeEnv(); const tx=pmrem.fromEquirectangular(eq).texture;
   if(envRaw&&envRaw.dispose)envRaw.dispose(); envRaw=eq;              // keep the RAW equirect for the backdrop
   if(studioEnv&&studioEnv.dispose)studioEnv.dispose(); studioEnv=tx; photoEnv=null; scene.environment=tx; applyBackdrop(); }
-function applyBackdrop(){ const s=$('stage');
-  if(backdrop==='environment'){ scene.background=envRaw||null; s.style.background='#000'; return; }   // raw equirect, not the PMREM atlas
-  scene.background=null;
+// panorama background via an inverted skybox sphere (robust full-res 360, no version quirks)
+function setSkybox(tex){ if(skybox){scene.remove(skybox);skybox.geometry.dispose();skybox.material.dispose();skybox=null;}
+  if(tex){ skybox=new THREE.Mesh(new THREE.SphereGeometry(60,64,40), new THREE.MeshBasicMaterial({map:tex,side:THREE.BackSide})); skybox.renderOrder=-1; scene.add(skybox); } }
+function applyBackdrop(){ const s=$('stage'); scene.background=null;
+  if(backdrop==='environment'){ setSkybox(envRaw); s.style.background='#000'; return; }
+  setSkybox(null);
   const css={ studio:'radial-gradient(130% 130% at 50% 0%,#23262f 0%,#0a0b0e 70%)', black:'#050507',
     charcoal:'#15171b', white:'#d7dade', warm:'linear-gradient(180deg,#2a201a,#0c0907)',
     bluegrad:'linear-gradient(180deg,#33506e,#0a0d12)', sunset:'linear-gradient(180deg,#6b3b2e,#160d10)',
@@ -304,11 +307,13 @@ function applyBackdrop(){ const s=$('stage');
   s.style.background=css[backdrop]||css.studio; }
 function loadHDRI(slug){ if(typeof THREE.RGBELoader==='undefined'){ showErr('Scene loader did not load (check connection).'); return; }
   status('Loading scene… (first time downloads the HDRI)');
-  new THREE.RGBELoader().setDataType(THREE.HalfFloatType).load('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/'+slug+'_2k.hdr',
-    tex=>{ tex.mapping=THREE.EquirectangularReflectionMapping; const env=pmrem.fromEquirectangular(tex).texture;
+  new THREE.RGBELoader().setDataType(THREE.HalfFloatType).load('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/4k/'+slug+'_4k.hdr',
+    tex=>{ tex.mapping=THREE.EquirectangularReflectionMapping;
+      tex.minFilter=THREE.LinearFilter; tex.magFilter=THREE.LinearFilter; tex.generateMipmaps=false;  // DataTextures default to NEAREST -> blocky; force smooth
+      const env=pmrem.fromEquirectangular(tex).texture;
       if(envRaw&&envRaw.dispose)envRaw.dispose(); envRaw=tex;                 // raw equirect = the visible backdrop
       if(studioEnv&&studioEnv.dispose)studioEnv.dispose(); studioEnv=env; photoEnv=env;
-      scene.environment=env; scene.background=tex; $('stage').style.background='#000'; status(''); },
+      scene.environment=env; scene.background=null; setSkybox(tex); $('stage').style.background='#000'; status(''); },
     undefined, ()=>{ status(''); showErr('Could not load that scene (network/CORS). Try another or use the lighting presets.'); }); }
 function initRenderer(){
   renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true});
