@@ -27,6 +27,9 @@
   .btn{background:#0e0f13;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:12.5px;cursor:pointer;width:100%;}
   .btn:hover{border-color:var(--accent);} .btn.active{border-color:var(--accent);color:var(--accent);}
   .seg{display:flex;gap:6px;margin-bottom:8px;} .seg .btn{padding:7px 6px;}
+  .step{display:flex;align-items:center;gap:6px;}
+  .sbtn{width:26px;height:24px;border:1px solid var(--line);background:#0e0f13;color:var(--txt);border-radius:6px;cursor:pointer;font-size:15px;line-height:1;padding:0;flex:none;}
+  .sbtn:hover{border-color:var(--accent);color:var(--accent);} .step .val{min-width:54px;text-align:center;}
   input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;}
   select{background:#0e0f13;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:11px;}
   input[type=color]{width:26px;height:24px;border:none;background:none;padding:0;border-radius:5px;}
@@ -74,14 +77,19 @@
         </select>
         <label class="row" style="margin:9px 0 5px"><span>Key light position</span></label>
         <div id="keyPos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
-          <button class="btn" data-pos="tl">↖</button><button class="btn active" data-pos="top">▲</button><button class="btn" data-pos="tr">↗</button>
-          <button class="btn" data-pos="left">◀</button><button class="btn" data-pos="front">●</button><button class="btn" data-pos="right">▶</button>
+          <button class="btn" data-pos="tl">↖</button><button class="btn" data-pos="top">▲</button><button class="btn" data-pos="tr">↗</button>
+          <button class="btn" data-pos="left">◀</button><button class="btn active" data-pos="front">●</button><button class="btn" data-pos="right">▶</button>
         </div>
         <label class="row" style="margin-top:9px"><span>Light size</span><input type="range" id="keySize" min="80" max="540" value="240"></label>
         <button class="btn" id="envLoadBtn" style="width:100%;margin-top:4px">Load my own photo…</button>
         <input type="file" id="envFile" accept="image/*" style="display:none">
         <label class="row" style="margin-top:9px"><span>Exposure</span><input type="range" id="exp" min="20" max="240" value="110"><span class="val" id="expV">1.10</span></label>
         <label class="row"><span>Light intensity</span><input type="range" id="envB" min="20" max="260" value="100"><span class="val" id="envBV">1.00</span></label>
+      </div>
+      <div class="group"><h2>Print finish</h2>
+        <label class="row"><span>Gloss thickness</span><span class="step"><button class="sbtn" data-bump="gloss" data-d="-1">−</button><span class="val" id="glossHV">0.001&Prime;</span><button class="sbtn" data-bump="gloss" data-d="1">+</button></span></label>
+        <label class="row"><span>Clear-emboss height</span><span class="step"><button class="sbtn" data-bump="emb" data-d="-1">−</button><span class="val" id="embHV">0.004&Prime;</span><button class="sbtn" data-bump="emb" data-d="1">+</button></span></label>
+        <p class="sub" style="margin:6px 0 0;font-size:11px">Any gloss = clear ink raised above the matte ink; emboss builds up further.</p>
       </div>
       <div class="group"><h2>Backdrop &amp; scene</h2>
         <label class="row" style="margin:0 0 5px"><span>Photoreal scene</span></label>
@@ -109,6 +117,13 @@
         <label class="row"><span>Spin speed</span><input type="range" id="spin" min="1" max="40" value="8"></label>
         <button class="btn" id="reset">Reset view</button>
       </div>
+      <div class="group"><h2>Export proof</h2>
+        <div class="seg" style="display:flex;gap:6px">
+          <button class="btn" id="expPdf" style="flex:1">PDF</button>
+          <button class="btn" id="expPng" style="flex:1">PNG</button>
+        </div>
+        <p class="sub" style="margin:6px 0 0;font-size:11px">High-res shot of the current view.</p>
+      </div>
     </div>
   </div>
 </div>
@@ -118,6 +133,7 @@
 <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const GS_WASM='https://cdn.jsdelivr.net/npm/@jspawn/ghostscript-wasm@0.0.2/gs.wasm';
 const REFH=11; // assumed real piece height (inches) for thickness scaling
@@ -144,15 +160,19 @@ async function runTiffsep(pdfBytes,dpi){
   return files.map(f=>({name:f.match(/\((.+)\)\.tif$/)[1],u8:mod.FS.readFile('/'+f)}));
 }
 const PROCESS=new Set(['cyan','magenta','yellow','black']);
-function classify(name){const n=name.toLowerCase();let metal=0,col=[0.05,0.05,0.055],flake=0,rough,clear;
+function classify(name){const n=name.toLowerCase();
+  if(/emboss|raised|dimension|tactile/.test(n)) return {name,emboss:1,clearInk:1,metal:0,col:[0.9,0.9,0.92],rough:0.07,clear:1.0,flake:0};   // clear raised gloss — transparent overlay
+  let metal=0,col=[0.05,0.05,0.055],flake=0,rough,clear;
   if(/silver|chrome/.test(n)||(/mirror/.test(n)&&!/gold/.test(n))||(/foil/.test(n)&&!/gold/.test(n))){metal=1;col=[0.95,0.96,1.0];}
   else if(/gold|brass/.test(n)){metal=1;col=[1.0,0.82,0.42];}
   else if(/copper|bronze|rose/.test(n)){metal=1;col=[0.96,0.64,0.45];}
-  else if(/white/.test(n)){col=[0.9,0.9,0.92];} else if(/black/.test(n)){col=[0.05,0.05,0.055];}
+  else if(/white/.test(n)){col=[0.9,0.9,0.92];} else if(/black/.test(n)){col=[0.012,0.012,0.014];}   // deep piano-black base — only the sharp reflections lift it (was too grey at 0.05)
   if(/gloss|uv|shiny|glossy/.test(n)){rough=metal?0.06:0.10;clear=1.0;}
   else if(/matt|soft|velvet/.test(n)){rough=metal?0.34:0.80;clear=0.0;flake=metal?1:0;}
   else if(/satin/.test(n)){rough=0.25;clear=0.4;} else {rough=metal?0.30:0.55;clear=0.3;}
-  return {name,metal,col,rough,clear,flake};}
+  const hasColor=/silver|chrome|mirror|foil|gold|brass|copper|bronze|rose|white|black/.test(n);
+  const clearInk=!hasColor && /clear|gloss|uv|varnish|glaze|coat/.test(n);   // clear/varnish coat with no colour = clear ink (overlay, sits 0.002" above ink)
+  return {name,metal,col,rough,clear,flake,clearInk};}
 
 // ================= layer model =================
 let layers=[]; // bottom -> top
@@ -209,7 +229,7 @@ async function decodePdfToLayer(file){
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   const seps=await runTiffsep(bytes,200);
   status('Decoding…'); await new Promise(r=>setTimeout(r,20));
-  let W=0,H=0; const redCh=[],FINISHES=[]; let ink=null;
+  let W=0,H=0; const redCh=[],FINISHES=[]; let ink=null; const proc={};
   for(const s of seps){
     const ab=s.u8.buffer.slice(s.u8.byteOffset,s.u8.byteOffset+s.u8.byteLength);
     let ifds; try{ifds=UTIF.decode(ab);UTIF.decodeImage(ab,ifds[0]);}catch(e){continue;}
@@ -220,7 +240,9 @@ async function decodePdfToLayer(file){
     if(w!==W||h!==H) continue;
     const r=new Uint8Array(w*h);
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){const v=255-rgba[(y*w+x)*4];const idx=(h-1-y)*w+x;r[idx]=v;if(v>ink[idx])ink[idx]=v;}
-    if(!PROCESS.has(s.name.trim().toLowerCase())){ redCh.push(r); FINISHES.push(classify(s.name)); }
+    const nm=s.name.trim().toLowerCase();
+    if(PROCESS.has(nm)){ proc[nm]=r; }                                 // keep CMYK for a full-colour composite
+    else { redCh.push(r); FINISHES.push(classify(s.name)); }
   }
   status('');
   if(!ink){ showErr('Nothing readable in '+file.name+'.'); return null; }
@@ -231,7 +253,13 @@ async function decodePdfToLayer(file){
   const shape = isThinOutline ? fillEvenOdd(ink,W,H) : ink;
   console.log('decoded',file.name,'finishes:',FINISHES.map(f=>f.name),'| outline even-odd fill:',isThinOutline);
   const base={id:++idc,name:file.name.replace(/\.pdf$/i,''),W,H,holesShape:shape,solidShape:solidFull,shape,thick:0.125,scale:1.0,opacity:0.16};
-  if(FINISHES.length){ return Object.assign(base,{kind:'printed',redCh,FINISHES,enabled:FINISHES.map(()=>1),colorHex:'#0a0a0c'}); }
+  // composite the CMYK process channels into a full-colour base (used under finishes like clear emboss, or alone)
+  let colorRGB=null;
+  if(proc.cyan||proc.magenta||proc.yellow||proc.black){ const N=W*H; colorRGB=new Uint8Array(N*3);
+    for(let p=0;p<N;p++){ const c=(proc.cyan?proc.cyan[p]:0)/255, m=(proc.magenta?proc.magenta[p]:0)/255, y=(proc.yellow?proc.yellow[p]:0)/255, k=(proc.black?proc.black[p]:0)/255, kc=1-k;
+      colorRGB[p*3]=Math.round(255*(1-c)*kc); colorRGB[p*3+1]=Math.round(255*(1-m)*kc); colorRGB[p*3+2]=Math.round(255*(1-y)*kc); } }
+  if(FINISHES.length){ console.log('decoded',file.name,'finishes:',FINISHES.map(f=>f.name),colorRGB?'+ CMYK base':''); return Object.assign(base,{kind:'printed',redCh,FINISHES,enabled:FINISHES.map(()=>1),colorRGB,colorHex:'#0a0a0c'}); }
+  if(colorRGB){ console.log('decoded',file.name,'full-colour CMYK print'); return Object.assign(base,{kind:'printed',fullColor:true,colorRGB,colorHex:'#0a0a0c'}); }
   return Object.assign(base,{kind:'clear',thick:0.25,colorHex:'#dfe7f2',opacity:0.16});
 }
 function roundRectShape(W,H,r){const a=new Uint8Array(W*H);
@@ -266,32 +294,66 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
     const ring=makeRing(L.shape,W,H,R); const ra=new Uint8ClampedArray(N*4);
     for(let p=0;p<N;p++){const o=p*4;ra[o]=ra[o+1]=ra[o+2]=ring[p];ra[o+3]=255;} L.tex.ring=mkTex(ra,W,H,null,false); }
   if(L.kind!=='printed') return;
+  if(L.fullColor){   // full-colour CMYK print: artwork straight from the composite, matte ink with a light sheen
+    const alb=new Uint8ClampedArray(N*4), orm=new Uint8ClampedArray(N*4);
+    for(let p=0;p<N;p++){ const o=p*4; alb[o]=L.colorRGB[p*3];alb[o+1]=L.colorRGB[p*3+1];alb[o+2]=L.colorRGB[p*3+2];alb[o+3]=255;
+      orm[o]=Math.round(0.30*255);orm[o+1]=Math.round(0.55*255);orm[o+2]=0;orm[o+3]=255; }   // R=clearcoat, G=rough, B=metal(0)
+    L.tex.albedo=mkTex(alb,W,H,THREE.sRGBEncoding,false);   // LINEAR filter -> smooth photographic artwork
+    L.tex.orm=mkTex(orm,W,H,null,false); L.tex.normal=null;
+    return;
+  }
   const alb=new Uint8ClampedArray(N*4),orm=new Uint8ClampedArray(N*4),flakeMask=new Uint8Array(N);
-  const NF=L.FINISHES.length;
-  for(let p=0;p<N;p++){let best=-1,bv=0;for(let i=0;i<NF;i++){const v=L.redCh[i][p]*L.enabled[i];if(v>bv){bv=v;best=i;}}
-    const o=p*4;
-    if(best<0||bv<40){alb[o]=12;alb[o+1]=12;alb[o+2]=14;alb[o+3]=255;orm[o]=0;orm[o+1]=153;orm[o+2]=0;orm[o+3]=255;continue;}
-    const f=L.FINISHES[best];
-    alb[o]=Math.round(Math.pow(f.col[0],1/2.2)*255);alb[o+1]=Math.round(Math.pow(f.col[1],1/2.2)*255);alb[o+2]=Math.round(Math.pow(f.col[2],1/2.2)*255);alb[o+3]=255;
-    orm[o]=Math.round(f.clear*255);orm[o+1]=Math.round(f.rough*255);orm[o+2]=Math.round(f.metal*255);orm[o+3]=255;
-    if(f.flake) flakeMask[p]=1;
+  const NF=L.FINISHES.length, hasCMYK=!!L.colorRGB;
+  // ANY gloss = clear ink (a clear coat on top), so it rides above the matte ink. Track emboss (textured build-up),
+  // clear/varnish coats (transparent, keep the art), and whether any glossy finish is present.
+  const eh=new Float32Array(N), cc=new Float32Array(N); let hasEmb=false, hasGloss=false;
+  for(let i=0;i<NF;i++){ const f=L.FINISHES[i]; if(!L.enabled[i])continue; const ch=L.redCh[i];
+    if(f.emboss){ hasEmb=true; for(let p=0;p<N;p++){const v=ch[p]; if(v>eh[p])eh[p]=v;} }
+    else if(f.clearInk){ for(let p=0;p<N;p++){const v=ch[p]; if(v>cc[p])cc[p]=v;} }   // clear/varnish coat: transparent, keeps art underneath
+    if(f.clear>=0.6 && !f.emboss) hasGloss=true; }
+  const hasRelief=hasEmb||hasGloss;
+  for(let p=0;p<N;p++){ const o=p*4;
+    // base colour: CMYK composite if the file carries process colour, otherwise the dark substrate
+    let R=hasCMYK?L.colorRGB[p*3]:12, G=hasCMYK?L.colorRGB[p*3+1]:12, B=hasCMYK?L.colorRGB[p*3+2]:14;
+    let clear=hasCMYK?0.12:0.0, rough=hasCMYK?0.5:0.6, metal=0;
+    // opaque finish (metallic / coloured gloss / matte ink) on top — clear inks skipped (transparent overlays)
+    let best=-1,bv=0; for(let i=0;i<NF;i++){ if(L.FINISHES[i].clearInk)continue; const v=L.redCh[i][p]*L.enabled[i]; if(v>bv){bv=v;best=i;} }
+    if(best>=0&&bv>40){ const f=L.FINISHES[best];
+      R=Math.round(Math.pow(f.col[0],1/2.2)*255);G=Math.round(Math.pow(f.col[1],1/2.2)*255);B=Math.round(Math.pow(f.col[2],1/2.2)*255);
+      clear=f.clear;rough=f.rough;metal=f.metal; if(f.flake)flakeMask[p]=1; }
+    // clear-ink overlay: keep whatever colour is underneath, render it as glossy clear
+    if(eh[p]>40||cc[p]>40){ clear=1.0; rough=0.07; }
+    alb[o]=R;alb[o+1]=G;alb[o+2]=B;alb[o+3]=255;
+    orm[o]=Math.round(clear*255);orm[o+1]=Math.round(rough*255);orm[o+2]=Math.round(metal*255);orm[o+3]=255;
   }
-  // FINE metallic-flake normal map, baked at 2x the artwork resolution so the grain is much finer
-  const F=2, NW=W*F, NH=H*F; const nrm=new Uint8ClampedArray(NW*NH*4);
-  for(let y=0;y<NH;y++){ const row=((y/F)|0)*W;
-    for(let x=0;x<NW;x++){ const o=(y*NW+x)*4;
-      if(flakeMask[row+((x/F)|0)]){ const q=y*NW+x; nrm[o]=Math.round(128+(hash(q)-0.5)*150); nrm[o+1]=Math.round(128+(hash(q*1.7+11)-0.5)*150); nrm[o+2]=255; nrm[o+3]=255; }
-      else { nrm[o]=128; nrm[o+1]=128; nrm[o+2]=255; nrm[o+3]=255; }
-    }
+  const lin=(hasCMYK||hasRelief);   // photographic / relief artwork -> LINEAR (smooth); pure spot finishes -> NEAREST (crisp seams)
+  if(hasRelief){   // clear-ink relief (inches): flat clear coat sits 0.002" above the ink; clear emboss builds up to the height slider, following its channel
+    const Hf=new Float32Array(N);
+    for(let p=0;p<N;p++){ const gf=Math.max(0,Math.min(1,(orm[p*4]/255-0.55)/0.35));   // glossy areas (high clearcoat) get the clear-coat thickness
+      let h=glossThick*gf; if(eh[p]>0){ const e=(eh[p]/255)*embStrength; if(e>h)h=e; } Hf[p]=h; }
+    const nrm=new Uint8ClampedArray(N*4); const SC=255;   // height(inches) -> normal tilt (matches the emboss-height calibration)
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const p=y*W+x,o=p*4;
+      let nx=(Hf[y*W+(x>0?x-1:x)]-Hf[y*W+(x<W-1?x+1:x)])*SC, ny=(Hf[(y>0?y-1:y)*W+x]-Hf[(y<H-1?y+1:y)*W+x])*SC;
+      if(flakeMask[p]){ nx+=(hash(p)-0.5)*0.5; ny+=(hash(p*1.7+11)-0.5)*0.5; }
+      const l=Math.hypot(nx,ny,1); nrm[o]=Math.round((nx/l*0.5+0.5)*255);nrm[o+1]=Math.round((ny/l*0.5+0.5)*255);nrm[o+2]=Math.round((1/l*0.5+0.5)*255);nrm[o+3]=255; }
+    L.tex.normal=mkTex(nrm,W,H,null,false);
+  } else {   // FINE metallic-flake normal map at 2x the artwork resolution (unchanged)
+    const F=2, NW=W*F, NH=H*F; const nrm=new Uint8ClampedArray(NW*NH*4);
+    for(let y=0;y<NH;y++){ const row=((y/F)|0)*W;
+      for(let x=0;x<NW;x++){ const o=(y*NW+x)*4;
+        if(flakeMask[row+((x/F)|0)]){ const q=y*NW+x; nrm[o]=Math.round(128+(hash(q)-0.5)*150); nrm[o+1]=Math.round(128+(hash(q*1.7+11)-0.5)*150); nrm[o+2]=255; nrm[o+3]=255; }
+        else { nrm[o]=128; nrm[o+1]=128; nrm[o+2]=255; nrm[o+3]=255; } } }
+    L.tex.normal=mkTex(nrm,NW,NH,null,true);
   }
-  L.tex.albedo=mkTex(alb,W,H,THREE.sRGBEncoding,true);   // NEAREST -> crisp finish boundaries (kills the thin gloss seam)
-  L.tex.orm=mkTex(orm,W,H,null,true);
-  L.tex.normal=mkTex(nrm,NW,NH,null,true);               // 2x-res flake normal
+  L.tex.albedo=mkTex(alb,W,H,THREE.sRGBEncoding,lin?false:true);
+  L.tex.orm=mkTex(orm,W,H,null,lin?false:true);
 }
 
 // ================= scene =================
 let renderer,scene,camera,mesh,pmrem,studioEnv,photoEnv=null,baseCamZ=4.4,envInt=1.0,envRaw=null,skybox=null;
-let envMood='studio', keyX=512, keyY=95, keyR=240, backdrop='studio', pedestal=false;
+let embStrength=0.004;   // clear-emboss raised height in inches (used directly as the relief normal strength)
+let glossThick=0.001;    // flat gloss / clear-coat thickness in inches (any gloss = clear ink on top, raised this much)
+let envMood='studio', keyX=512, keyY=300, keyR=240, backdrop='studio', pedestal=false;   // default key = front (bottom-middle ●)
 // mood -> [grad top, upper, lower, bottom, key-tint rgb, ambient level]
 const MOODS={ studio:['#33373f','#0e1014','#0a0c10','#15171c','255,255,255',0.10],
   showroom:['#4a443c','#231f1a','#1c1915','#2a2620','255,236,206',0.12],
@@ -337,7 +399,7 @@ function loadHDRI(slug){ if(typeof THREE.RGBELoader==='undefined'){ showErr('Sce
       scene.environment=env; scene.background=null; setSkybox(tex); $('stage').style.background='#000'; status(''); },
     undefined, ()=>{ status(''); showErr('Could not load that scene (network/CORS). Try another or use the lighting presets.'); }); }
 function initRenderer(){
-  renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true});
+  renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true,preserveDrawingBuffer:true});
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
   renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.10;
   scene=new THREE.Scene();scene.background=null;
@@ -359,7 +421,15 @@ function rebuildStack(){
     const sub=new THREE.Group(); sub.position.z=cz;
     const SL=Math.max(28,Math.round(t*1100));   // dense slices -> the side edge reads as one solid band
     const al=L.tex.alpha;
-    if(L.kind==='printed'){
+    if(L.kind==='printed'&&L.fullColor){   // full-colour print: diffuse colour artwork with a light gloss, on a clear-acrylic edge
+      const mat=new THREE.MeshPhysicalMaterial({map:L.tex.albedo,roughnessMap:L.tex.orm,clearcoatMap:L.tex.orm,
+        metalness:0,roughness:1,clearcoat:0.35,clearcoatRoughness:0.22,
+        alphaMap:al,alphaTest:0.4,transparent:false,envMapIntensity:envInt,side:THREE.FrontSide});
+      const edge=new THREE.MeshPhysicalMaterial({color:0x6f5a3a,roughness:0.5,metalness:0,clearcoat:0.2,clearcoatRoughness:0.4,alphaMap:al,alphaTest:0.45,transparent:false,side:THREE.DoubleSide});
+      L._mat=mat;
+      for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,edge);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
+      const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
+    } else if(L.kind==='printed'){
       const mat=new THREE.MeshPhysicalMaterial({map:L.tex.albedo,metalnessMap:L.tex.orm,roughnessMap:L.tex.orm,clearcoatMap:L.tex.orm,
         metalness:1,roughness:1,clearcoat:1,clearcoatRoughness:0.06,normalMap:L.tex.normal,normalScale:new THREE.Vector2(1.0,1.0),
         alphaMap:al,alphaTest:0.4,transparent:false,envMapIntensity:envInt});
@@ -429,10 +499,10 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
       '<span class="ic" data-a="up">↑</span><span class="ic" data-a="dn">↓</span><span class="ic" data-a="rm">✕</span></div>'+
       '<div class="ctl">'+
         '<label>Type<select data-a="kind">'+
-          '<option value="printed"'+(L.kind==='printed'?' selected':'')+(L.redCh?'':' disabled')+'>printed</option>'+
+          '<option value="printed"'+(L.kind==='printed'?' selected':'')+((L.redCh||L.fullColor)?'':' disabled')+'>printed</option>'+
           '<option value="clear"'+(L.kind==='clear'?' selected':'')+'>clear acrylic</option>'+
           '<option value="frosted"'+(L.kind==='frosted'?' selected':'')+'>frosted acrylic</option>'+
-          '<option value="solid"'+(L.kind==='solid'?' selected':'')+'>colored acrylic</option>'+
+          '<option value="solid"'+(L.kind==='solid'?' selected':'')+'>black acrylic</option>'+
         '</select></label>'+
         '<label>Thickness<select data-a="thick">'+
           ['1/16','1/8','1/4'].map((t,i)=>{const v=[0.0625,0.125,0.25][i];return '<option value="'+v+'"'+(Math.abs(L.thick-v)<1e-4?' selected':'')+'>'+t+'&quot;</option>';}).join('')+
@@ -441,7 +511,8 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
         '<label>Color<input type="color" data-a="color" value="'+L.colorHex+'" '+(isSolidish?'':'disabled')+'></label>'+
         ((L.kind==='clear'||L.kind==='frosted')?'<label style="grid-column:1/3">See‑through <span style="color:var(--accent)">'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'%</span><input type="range" data-a="seethru" min="0" max="97" value="'+Math.round((1-(L.opacity!==undefined?L.opacity:0.14))*100)+'" style="width:100%"></label>':'')+
       '</div>'+
-      ((L.kind==='printed'&&L.FINISHES)?'<div class="finsw">'+L.FINISHES.map((f,i)=>{const hex='#'+f.col.map(c=>Math.round(Math.pow(c,1/2.2)*255).toString(16).padStart(2,'0')).join('');return '<label class="fsw"><input type="checkbox" data-fin="'+i+'"'+(L.enabled[i]?' checked':'')+'><span class="chip" style="background:'+hex+'"></span>'+f.name+'</label>';}).join('')+'</div>':'');
+      ((L.kind==='printed'&&L.FINISHES)?'<div class="finsw">'+L.FINISHES.map((f,i)=>{const hex='#'+f.col.map(c=>Math.round(Math.pow(c,1/2.2)*255).toString(16).padStart(2,'0')).join('');return '<label class="fsw"><input type="checkbox" data-fin="'+i+'"'+(L.enabled[i]?' checked':'')+'><span class="chip" style="background:'+hex+'"></span>'+f.name+'</label>';}).join('')+'</div>':'')+
+      ((L.kind==='printed'&&L.fullColor)?'<div class="finsw" style="opacity:.7;font-size:11px">full-colour CMYK print</div>':'');
     el.querySelectorAll('[data-a]').forEach(node=>{const a=node.getAttribute('data-a');
       if(a==='hide') node.onclick=()=>{L.hidden=!L.hidden;rebuildStack();buildLayersUI();};
       else if(a==='up') node.onclick=()=>move(idx,1);
@@ -450,6 +521,7 @@ function buildLayersUI(){const c=$('layers');c.innerHTML='';
       else if(a==='kind') node.onchange=e=>{ L.kind=e.target.value;
         if(L.kind==='clear'){ if(!L._userColor) L.colorHex='#dfe7f2'; if(L.opacity===undefined||L.opacity>0.5) L.opacity=0.14; }
         else if(L.kind==='frosted'){ if(!L._userColor) L.colorHex='#e9edf2'; if(L.opacity===undefined||L.opacity<0.30) L.opacity=0.55; }
+        else if(L.kind==='solid'){ if(!L._userColor) L.colorHex='#0a0a0c'; }
         buildLayerTex(L);rebuildStack();buildLayersUI(); };
       else if(a==='thick') node.onchange=e=>{L.thick=parseFloat(e.target.value);rebuildStack();};
       else if(a==='scale') node.oninput=e=>{L.scale=e.target.value/100;rebuildStack();buildLayersUI();};
@@ -466,6 +538,45 @@ function move(idx,dir){const j=idx+dir;if(j<0||j>=layers.length)return;const t=l
 function loadEnvImage(url){const ldr=new THREE.TextureLoader();ldr.load(url,tex=>{tex.mapping=THREE.EquirectangularReflectionMapping;tex.encoding=THREE.sRGBEncoding;
   const env=pmrem.fromEquirectangular(tex).texture; if(envRaw&&envRaw.dispose)envRaw.dispose(); envRaw=tex;
   if(studioEnv&&studioEnv.dispose)studioEnv.dispose(); studioEnv=env; photoEnv=env; scene.environment=env; applyBackdrop();});}
+// ================= export proof (PDF / PNG) =================
+function proofName(){ const p=layers.find(l=>l.kind==='printed'); return (((p&&p.name)||'acrylic-proof').replace(/[^\w\-]+/g,'_'))+'-proof'; }
+function proofCaption(x,Wd,Hd){
+  const printed=layers.find(l=>l.kind==='printed'); const title=(printed&&printed.name)||'Acrylic proof';
+  const fins=[]; layers.forEach(l=>{ if(l.kind==='printed'){ if(l.FINISHES)l.FINISHES.forEach((f,i)=>{if(l.enabled[i])fins.push(f.name);}); if(l.fullColor)fins.push('full-colour print'); } else fins.push(l.kind+' acrylic'); });
+  const sub=(fins.slice(0,6).join('  ·  ')+'   ·   '+new Date().toLocaleDateString()).trim();
+  const h=Math.max(26,Math.round(Hd*0.058));
+  x.fillStyle='rgba(8,9,12,0.74)'; x.fillRect(0,Hd-h,Wd,h);
+  x.fillStyle='#3a3e48'; x.fillRect(0,Hd-h,Wd,2);
+  x.textBaseline='middle';
+  x.fillStyle='#edeff4'; x.textAlign='left'; x.font='600 '+Math.round(h*0.40)+'px -apple-system,Segoe UI,Roboto,Helvetica,sans-serif';
+  x.fillText(title, Math.round(Wd*0.022), Hd-h*0.5);
+  x.fillStyle='#9aa0ad'; x.textAlign='right'; x.font=Math.round(h*0.32)+'px -apple-system,Segoe UI,Roboto,Helvetica,sans-serif';
+  x.fillText(sub, Wd-Math.round(Wd*0.022), Hd-h*0.5);
+}
+function captureProof(){
+  if(!renderer||!mesh){ showErr('Add a piece first.'); return null; }
+  const s=$('stage'), cw=s.clientWidth, ch=s.clientHeight;
+  const scale=Math.max(1.5,Math.min(3.5, 2600/cw)), dpr0=renderer.getPixelRatio();
+  renderer.setPixelRatio(scale); renderer.setSize(cw,ch,false); renderer.render(scene,camera);
+  const Wd=Math.round(cw*scale), Hd=Math.round(ch*scale);
+  const out=document.createElement('canvas'); out.width=Wd; out.height=Hd; const x=out.getContext('2d');
+  const g=x.createRadialGradient(Wd*0.5,-Hd*0.1,0, Wd*0.5,-Hd*0.1, Hd*1.5);   // studio backdrop
+  g.addColorStop(0,'#23262f'); g.addColorStop(0.7,'#0a0b0e'); g.addColorStop(1,'#070709');
+  x.fillStyle=g; x.fillRect(0,0,Wd,Hd);
+  x.drawImage(renderer.domElement,0,0,Wd,Hd);     // the rendered piece (transparent bg over the gradient; opaque if a scene is set)
+  proofCaption(x,Wd,Hd);
+  renderer.setPixelRatio(dpr0); renderer.setSize(cw,ch,false); renderer.render(scene,camera);   // restore
+  return out;
+}
+function savePng(){ const c=captureProof(); if(!c)return; const a=document.createElement('a'); a.download=proofName()+'.png'; a.href=c.toDataURL('image/png'); a.click(); }
+function savePdf(){ const c=captureProof(); if(!c)return;
+  const J=(window.jspdf&&window.jspdf.jsPDF); if(!J){ showErr('PDF library did not load (connection?). Use PNG instead.'); return; }
+  const img=c.toDataURL('image/jpeg',0.92), w=c.width, h=c.height;
+  const pdf=new J({orientation:(w>=h?'landscape':'portrait'),unit:'pt',format:'letter'});
+  const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight(), m=20;
+  const r=Math.min((pw-2*m)/w,(ph-2*m)/h), iw=w*r, ih=h*r;
+  pdf.addImage(img,'JPEG',(pw-iw)/2,(ph-ih)/2,iw,ih); pdf.save(proofName()+'.pdf');
+}
 function wireUI(){const canvas=$('c');let panning=false;
   canvas.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault();});
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
@@ -477,8 +588,15 @@ function wireUI(){const canvas=$('c');let panning=false;
   canvas.addEventListener('wheel',e=>{e.preventDefault();zoom*=(1+Math.sign(e.deltaY)*0.08);zoom=Math.max(0.22,Math.min(2.6,zoom));},{passive:false});
   $('exp').oninput=e=>{renderer.toneMappingExposure=e.target.value/100;$('expV').textContent=(e.target.value/100).toFixed(2);};
   $('envB').oninput=e=>{envInt=e.target.value/100;layers.forEach(L=>{if(L._mat)L._mat.envMapIntensity=envInt;});$('envBV').textContent=envInt.toFixed(2);};
+  const bumpFinish=(which,d)=>{
+    if(which==='gloss'){ glossThick=Math.min(0.01,Math.max(0.001,Math.round((glossThick+d*0.001)*1000)/1000)); $('glossHV').textContent=glossThick.toFixed(3)+'″'; }
+    else { embStrength=Math.min(0.02,Math.max(0.001,Math.round((embStrength+d*0.001)*1000)/1000)); $('embHV').textContent=embStrength.toFixed(3)+'″'; }
+    layers.forEach(L=>{ if(L.kind==='printed'&&L.FINISHES) buildLayerTex(L); }); rebuildStack();
+  };
+  document.querySelectorAll('.sbtn[data-bump]').forEach(b=>b.onclick=()=>bumpFinish(b.dataset.bump,+b.dataset.d));
   $('auto').onchange=e=>autorot=e.target.checked;
   $('reset').onclick=()=>{target={x:0,y:0};panTarget={x:0,y:0};zoom=1;autorot=false;$('auto').checked=false;};
+  $('expPdf').onclick=savePdf; $('expPng').onclick=savePng;
   $('envMood').onchange=e=>{envMood=e.target.value;applyEnv();};
   $('keySize').oninput=e=>{keyR=+e.target.value;applyEnv();};
   const KP={tl:[300,110],top:[512,80],tr:[724,110],left:[170,235],front:[512,300],right:[854,235]};
