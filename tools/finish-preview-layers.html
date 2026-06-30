@@ -87,7 +87,7 @@
         <label class="row"><span>Light intensity</span><input type="range" id="envB" min="20" max="260" value="100"><span class="val" id="envBV">1.00</span></label>
       </div>
       <div class="group"><h2>Print finish</h2>
-        <label class="row"><span>Gloss thickness</span><span class="step"><button class="sbtn" data-bump="gloss" data-d="-1">−</button><span class="val" id="glossHV">0.001&Prime;</span><button class="sbtn" data-bump="gloss" data-d="1">+</button></span></label>
+        <label class="row"><span>Gloss thickness</span><span class="step"><button class="sbtn" data-bump="gloss" data-d="-1">−</button><span class="val" id="glossHV">0.016&Prime;</span><button class="sbtn" data-bump="gloss" data-d="1">+</button></span></label>
         <label class="row"><span>Clear-emboss height</span><span class="step"><button class="sbtn" data-bump="emb" data-d="-1">−</button><span class="val" id="embHV">0.004&Prime;</span><button class="sbtn" data-bump="emb" data-d="1">+</button></span></label>
         <p class="sub" style="margin:6px 0 0;font-size:11px">Any gloss = clear ink raised above the matte ink; emboss builds up further.</p>
       </div>
@@ -112,17 +112,23 @@
         <p class="sub" style="margin:8px 0 0">Photoreal scenes are free CC0 HDRIs (Poly&nbsp;Haven) loaded live — the metal reflects the real room.</p>
       </div>
       <div class="group"><h2>View</h2>
+        <label class="row"><span>Showcase sweep</span><input type="checkbox" id="showcase"></label>
         <label class="row"><span>Stand on black glass</span><input type="checkbox" id="pedestal"></label>
         <label class="row"><span>Auto-rotate</span><input type="checkbox" id="auto"></label>
         <label class="row"><span>Spin speed</span><input type="range" id="spin" min="1" max="40" value="8"></label>
-        <button class="btn" id="reset">Reset view</button>
+        <button class="btn" id="explode">Spread layers (3/4 exploded)</button>
+        <div class="seg" style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="balanced" style="flex:1">Balanced light</button><button class="btn" id="reset" style="flex:1">Reset view</button></div>
       </div>
       <div class="group"><h2>Export proof</h2>
         <div class="seg" style="display:flex;gap:6px">
           <button class="btn" id="expPdf" style="flex:1">PDF</button>
           <button class="btn" id="expPng" style="flex:1">PNG</button>
         </div>
-        <p class="sub" style="margin:6px 0 0;font-size:11px">High-res shot of the current view.</p>
+        <div class="seg" style="display:flex;gap:6px;margin-top:6px">
+          <button class="btn" id="expSheet" style="flex:1">Angle sheet</button>
+          <button class="btn" id="recBtn" style="flex:1">Record clip</button>
+        </div>
+        <p class="sub" style="margin:6px 0 0;font-size:11px">PDF/PNG = current view · Sheet = 4 angles · Clip = turntable video.</p>
       </div>
     </div>
   </div>
@@ -177,17 +183,13 @@ function classify(name){const n=name.toLowerCase();
 // ================= layer model =================
 let layers=[]; // bottom -> top
 let idc=0;
-// OUTER-perimeter ring only (not around interior holes) -> clear/frosted edge band that doesn't fill screw holes
+// edge band = solid pixels within R of ANY edge — the outer perimeter AND the inside of every hole, so cut-outs get a real wall through the thickness
 function makeRing(shape,W,H,R){
-  const thr=128,N=W*H; const bin=new Uint8Array(N); for(let i=0;i<N;i++)bin[i]=shape[i]>thr?1:0;
-  // exterior background = reachable from the image border (interior holes are NOT exterior)
-  const ext=new Uint8Array(N); const st=[];
-  function seed(x,y){const i=y*W+x;if(!ext[i]&&!bin[i]){ext[i]=1;st.push(i);}}
-  for(let x=0;x<W;x++){seed(x,0);seed(x,H-1);} for(let y=0;y<H;y++){seed(0,y);seed(W-1,y);}
-  while(st.length){const i=st.pop(),x=i%W,y=(i/W)|0;if(x>0)seed(x-1,y);if(x<W-1)seed(x+1,y);if(y>0)seed(x,y-1);if(y<H-1)seed(x,y+1);}
-  // dilate exterior by R (separable max), ring = solid AND near exterior bg
+  const thr=128,N=W*H; const bin=new Uint8Array(N), bg=new Uint8Array(N);
+  for(let i=0;i<N;i++){ bin[i]=shape[i]>thr?1:0; bg[i]=bin[i]?0:1; }   // bg = every non-solid pixel (outside + holes)
+  // dilate background by R (separable max); ring = solid within R of a background pixel
   const dh=new Uint8Array(N);
-  for(let y=0;y<H;y++){const row=y*W;for(let x=0;x<W;x++){let m=0;for(let dx=-R;dx<=R;dx++){const xx=x+dx;if(xx>=0&&xx<W&&ext[row+xx]){m=1;break;}}dh[row+x]=m;}}
+  for(let y=0;y<H;y++){const row=y*W;for(let x=0;x<W;x++){let m=0;for(let dx=-R;dx<=R;dx++){const xx=x+dx;if(xx>=0&&xx<W&&bg[row+xx]){m=1;break;}}dh[row+x]=m;}}
   const ring=new Uint8Array(N);
   for(let x=0;x<W;x++){for(let y=0;y<H;y++){const i=y*W+x;if(!bin[i]){ring[i]=0;continue;}let m=0;for(let dy=-R;dy<=R;dy++){const yy=y+dy;if(yy>=0&&yy<H&&dh[yy*W+x]){m=1;break;}}ring[i]=m?255:0;}}
   return ring;
@@ -295,7 +297,7 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
   const alp=new Uint8ClampedArray(N*4);
   for(let p=0;p<N;p++){const v=L.shape[p];const o=p*4;alp[o]=alp[o+1]=alp[o+2]=v;alp[o+3]=255;}
   L.tex={alpha:mkTex(alp,W,H,null,true)};   // NEAREST -> holes/cutouts stay crisp zeros so they cut on every layer type
-  if(L.kind==='clear'||L.kind==='frosted'){ const R=Math.max(3,Math.round(Math.min(W,H)*0.007));
+  if(L.kind==='clear'||L.kind==='frosted'){ const R=Math.max(2,Math.round(Math.min(W,H)*0.0028));   // thinner edge band — closer to the real thin cut edge
     const ring=makeRing(L.shape,W,H,R); const ra=new Uint8ClampedArray(N*4);
     for(let p=0;p<N;p++){const o=p*4;ra[o]=ra[o+1]=ra[o+2]=ring[p];ra[o+3]=255;} L.tex.ring=mkTex(ra,W,H,null,false); }
   if(L.kind!=='printed') return;
@@ -333,9 +335,16 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
   }
   const lin=(hasCMYK||hasRelief);   // photographic / relief artwork -> LINEAR (smooth); pure spot finishes -> NEAREST (crisp seams)
   if(hasRelief){   // clear-ink relief (inches): flat clear coat sits 0.002" above the ink; clear emboss builds up to the height slider, following its channel
-    const Hf=new Float32Array(N);
-    for(let p=0;p<N;p++){ const gf=Math.max(0,Math.min(1,(orm[p*4]/255-0.55)/0.35));   // glossy areas (high clearcoat) get the clear-coat thickness
-      let h=glossThick*gf; if(eh[p]>0){ const e=(eh[p]/255)*embStrength; if(e>h)h=e; } Hf[p]=h; }
+    const Hf=new Float32Array(N), Hg=new Float32Array(N);
+    for(let p=0;p<N;p++){
+      if(eh[p]>20){ Hf[p]=(eh[p]/255)*embStrength; }                                              // emboss areas: controlled only by the emboss-height slider (sharp grain)
+      else { const gf=Math.max(0,Math.min(1,(orm[p*4]/255-0.55)/0.35)); Hg[p]=glossThick*gf; }    // flat gloss areas: rounded bead, controlled only by the gloss-thickness slider
+    }
+    // round the gloss bead — its WIDTH grows with thickness, so the slider has a visible range (a clear coat self-levels into a meniscus at its edge)
+    const gR=Math.max(1,Math.min(14,Math.round(glossThick*400)));
+    const tmp=new Float32Array(N), inv=1/(2*gR+1);
+    for(let y=0;y<H;y++){const row=y*W;let s=0;for(let k=-gR;k<=gR;k++)s+=Hg[row+Math.max(0,Math.min(W-1,k))];for(let x=0;x<W;x++){tmp[row+x]=s*inv;s+=Hg[row+Math.min(W-1,x+gR+1)]-Hg[row+Math.max(0,x-gR)];}}
+    for(let x=0;x<W;x++){let s=0;for(let k=-gR;k<=gR;k++)s+=tmp[Math.max(0,Math.min(H-1,k))*W+x];for(let y=0;y<H;y++){const v=s*inv;if(v>Hf[y*W+x])Hf[y*W+x]=v;s+=tmp[Math.min(H-1,y+gR+1)*W+x]-tmp[Math.max(0,y-gR)*W+x];}}
     const nrm=new Uint8ClampedArray(N*4); const SC=255;   // height(inches) -> normal tilt (matches the emboss-height calibration)
     for(let y=0;y<H;y++)for(let x=0;x<W;x++){ const p=y*W+x,o=p*4;
       let nx=(Hf[y*W+(x>0?x-1:x)]-Hf[y*W+(x<W-1?x+1:x)])*SC, ny=(Hf[(y>0?y-1:y)*W+x]-Hf[(y<H-1?y+1:y)*W+x])*SC;
@@ -357,7 +366,9 @@ function buildLayerTex(L){const W=L.W,H=L.H,N=W*H;
 // ================= scene =================
 let renderer,scene,camera,mesh,pmrem,studioEnv,photoEnv=null,baseCamZ=4.4,envInt=1.0,envRaw=null,skybox=null;
 let embStrength=0.004;   // clear-emboss raised height in inches (used directly as the relief normal strength)
-let glossThick=0.001;    // flat gloss / clear-coat thickness in inches (any gloss = clear ink on top, raised this much)
+let glossThick=0.016;    // flat gloss / clear-coat thickness in inches (any gloss = clear ink on top, raised this much)
+let keyLight=null,fillLight=null,showcase=false,showT=0,recorder=null,recChunks=[];   // showcase sweep + clip recording
+let exploded=false,_prevZoom=1;   // spread-layers (exploded 3/4) view
 let envMood='studio', keyX=512, keyY=300, keyR=240, backdrop='studio', pedestal=false;   // default key = front (bottom-middle ●)
 // mood -> [grad top, upper, lower, bottom, key-tint rgb, ambient level]
 const MOODS={ studio:['#33373f','#0e1014','#0a0c10','#15171c','255,255,255',0.10],
@@ -411,16 +422,17 @@ function initRenderer(){
   camera=new THREE.PerspectiveCamera(26,1,0.1,100);camera.position.set(0,0,baseCamZ);
   pmrem=new THREE.PMREMGenerator(renderer);pmrem.compileEquirectangularShader();
   const eq=makeEnv();envRaw=eq;studioEnv=pmrem.fromEquirectangular(eq).texture;scene.environment=studioEnv;applyBackdrop();
-  const k=new THREE.DirectionalLight(0xffffff,0.45);k.position.set(-1.2,1.4,2.0);scene.add(k);
-  const f=new THREE.DirectionalLight(0xbfd0ff,0.18);f.position.set(1.5,-0.6,1.0);scene.add(f);
+  keyLight=new THREE.DirectionalLight(0xffffff,0.45);keyLight.position.set(-1.2,1.4,2.0);scene.add(keyLight);
+  fillLight=new THREE.DirectionalLight(0xbfd0ff,0.18);fillLight.position.set(1.5,-0.6,1.0);scene.add(fillLight);
   resize();window.addEventListener('resize',resize);wireUI();animate();
 }
 function tw(L){ return L.thick*2/REFH; }            // world thickness
 function rebuildStack(){
   if(mesh){ scene.remove(mesh); mesh.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.dispose)o.material.dispose();}); }
   mesh=new THREE.Group();
-  let T=0; layers.forEach(L=>T+=tw(L)); let zc=-T/2;
-  layers.forEach(L=>{ const t=tw(L), cz=zc+t/2; zc+=t;
+  const nL=layers.length, EXG = exploded ? Math.min(0.55, 1.6/Math.max(1,nL-1)) : 0;   // gap between layers when spread apart
+  let T=0; layers.forEach(L=>T+=tw(L)); let zc=-(T+(nL-1)*EXG)/2;
+  layers.forEach(L=>{ const t=tw(L), cz=zc+t/2; zc+=t+EXG;
     if(L.hidden) return;   // eyeball-hidden: keep its slot in the stack but don't render it
     const aspect=L.W/L.H, ph=2.0*L.scale, pw=ph*aspect; const geo=new THREE.PlaneGeometry(pw,ph,1,1);
     const sub=new THREE.Group(); sub.position.z=cz;
@@ -449,7 +461,7 @@ function rebuildStack(){
         roughness:frosted?0.72:0.04, clearcoat:frosted?0.0:1.0, clearcoatRoughness:0.03,
         transparent:true,opacity:op,depthWrite:false,alphaMap:al,side:THREE.DoubleSide,envMapIntensity:frosted?envInt*0.8:envInt});
       // edge is a perimeter ring only (so the face stays see-through). Neutral dark-gray cut edge (rgb 50,50,50).
-      const edge=new THREE.MeshPhysicalMaterial({color:0x323232,metalness:0,roughness:0.6,clearcoat:0.0,alphaMap:(L.tex.ring||al),alphaTest:0.45,transparent:false,side:THREE.DoubleSide,envMapIntensity:0.35});
+      const edge=new THREE.MeshPhysicalMaterial({color:0x565b64,metalness:0,roughness:0.6,clearcoat:0.0,alphaMap:(L.tex.ring||al),alphaTest:0.45,transparent:false,side:THREE.DoubleSide,envMapIntensity:0.3});   // opaque (depth-culled, cheap) — softer/lighter grey gives the lower-opacity look
       L._mat=mat;
       for(let i=0;i<SL;i++){const m=new THREE.Mesh(geo,edge);m.position.z=-t/2+t*(i/(SL-1));sub.add(m);}
       const fr=new THREE.Mesh(geo,mat);fr.position.z=t/2+0.0004;sub.add(fr);
@@ -480,7 +492,11 @@ function setPedestal(on){ pedestal=on;
     reflMesh.matrixAutoUpdate=false; scene.add(reflMesh);
   }
 }
-function animate(){requestAnimationFrame(animate);if(autorot)target.y+=rotSpeed;
+function animate(){requestAnimationFrame(animate);
+  if(showcase){ showT+=0.013;                                        // gentle rock + key-light orbit reveals every finish in turn
+    target.x=0.12*Math.sin(showT*0.9); target.y=0.40*Math.sin(showT*0.6);
+    if(keyLight) keyLight.position.set(2.4*Math.cos(showT*1.25), 1.2+0.9*Math.sin(showT*1.0), 1.7); }
+  else if(autorot) target.y+=rotSpeed;
   tilt.x+=(target.x-tilt.x)*0.08;tilt.y+=(target.y-tilt.y)*0.08;
   if(mesh){mesh.rotation.x=tilt.x;mesh.rotation.y=tilt.y;mesh.updateMatrix();}
   pan.x+=(panTarget.x-pan.x)*0.18;pan.y+=(panTarget.y-pan.y)*0.18;
@@ -582,6 +598,76 @@ function savePdf(){ const c=captureProof(); if(!c)return;
   const r=Math.min((pw-2*m)/w,(ph-2*m)/h), iw=w*r, ih=h*r;
   pdf.addImage(img,'JPEG',(pw-iw)/2,(ph-ih)/2,iw,ih); pdf.save(proofName()+'.pdf');
 }
+// one-click lighting that reads all finishes at the straight-on view: soft fill (colour/matte) + a raking key (relief shadow + a specular kicker for gloss/foil)
+function balancedLight(){
+  envMood='soft'; keyX=300; keyY=110; keyR=270; applyEnv();
+  if(keyLight){ keyLight.position.set(-1.5,1.6,1.6); keyLight.intensity=0.78; }
+  if(fillLight){ fillLight.intensity=0.24; }
+  renderer.toneMappingExposure=1.16; if($('exp')){$('exp').value=116;} if($('expV'))$('expV').textContent='1.16';
+  if($('envMood'))$('envMood').value='soft';
+  document.querySelectorAll('#keyPos .btn').forEach(x=>x.classList.toggle('active',x.dataset.pos==='tl'));
+}
+// capture one angle (synchronously) at a fixed rotation with a label, on the studio gradient
+function captureView(rx,ry,label,targetPx){
+  const s=$('stage'), cw=s.clientWidth, ch=s.clientHeight;
+  const scale=Math.max(1.5,Math.min(3.5,(targetPx||1500)/cw)), dpr0=renderer.getPixelRatio();
+  if(mesh){ mesh.rotation.x=rx; mesh.rotation.y=ry; mesh.updateMatrix(); }
+  camera.position.set(0,0,baseCamZ*zoom); camera.lookAt(0,0,0);          // standard front framing for the sheet
+  renderer.setPixelRatio(scale); renderer.setSize(cw,ch,false); renderer.render(scene,camera);
+  const Wd=Math.round(cw*scale),Hd=Math.round(ch*scale);
+  const out=document.createElement('canvas');out.width=Wd;out.height=Hd;const x=out.getContext('2d');
+  const g=x.createRadialGradient(Wd*0.5,-Hd*0.1,0,Wd*0.5,-Hd*0.1,Hd*1.5);g.addColorStop(0,'#23262f');g.addColorStop(0.7,'#0a0b0e');g.addColorStop(1,'#070709');
+  x.fillStyle=g;x.fillRect(0,0,Wd,Hd); x.drawImage(renderer.domElement,0,0,Wd,Hd);
+  const hb=Math.max(20,Math.round(Hd*0.08)); x.fillStyle='rgba(8,9,12,0.6)'; x.fillRect(0,Hd-hb,Wd,hb);
+  x.fillStyle='#dfe2e8'; x.textBaseline='middle'; x.textAlign='center'; x.font='600 '+Math.round(hb*0.4)+'px -apple-system,Segoe UI,Roboto,sans-serif';
+  x.fillText(label,Wd/2,Hd-hb*0.5);
+  renderer.setPixelRatio(dpr0); renderer.setSize(cw,ch,false);
+  return out;
+}
+function savePdfSheet(){
+  if(!renderer||!mesh){ showErr('Add a piece first.'); return; }
+  const J=(window.jspdf&&window.jspdf.jsPDF); if(!J){ showErr('PDF library did not load (connection?).'); return; }
+  const wasShow=showcase,wasAuto=autorot,wasExp=exploded; showcase=false; autorot=false;
+  const views=[[0,0,'Front'],[0.18,-0.55,'Three-quarter ◀'],[0.18,0.55,'Three-quarter ▶'],[0.5,0.12,'Low rake (relief)']];
+  const shots=views.map(v=>captureView(v[0],v[1],v[2]));
+  if(layers.length>1){ exploded=true; rebuildStack(); const z0=zoom; zoom=Math.max(zoom,1.35); shots.push(captureView(0.32,-0.55,'Layer order (exploded)')); zoom=z0; exploded=wasExp; rebuildStack(); }
+  target.x=0; target.y=0; showcase=wasShow; autorot=wasAuto;
+  const pdf=new J({orientation:'landscape',unit:'pt',format:'letter'});
+  const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+  const title=((layers.find(l=>l.kind==='printed')||{}).name)||'Acrylic proof';
+  pdf.setFillColor(248,248,250); pdf.rect(0,0,pw,ph,'F');
+  pdf.setTextColor(28,30,36); pdf.setFont('helvetica','bold'); pdf.setFontSize(15); pdf.text(title+' — finish proof',24,30);
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(120,124,132); pdf.text(new Date().toLocaleDateString(),pw-24,30,{align:'right'});
+  const cols=(shots.length<=4)?2:3, rows=Math.ceil(shots.length/cols);
+  const m=24, topY=44, gap=14, cellW=(pw-2*m-(cols-1)*gap)/cols, cellH=(ph-topY-m-(rows-1)*gap)/rows;
+  shots.forEach((c,i)=>{ const col=i%cols,row=(i/cols)|0, cx=m+col*(cellW+gap), cy=topY+row*(cellH+gap), ar=c.width/c.height;
+    let iw=cellW, ih=iw/ar; if(ih>cellH){ ih=cellH; iw=ih*ar; }
+    pdf.addImage(c.toDataURL('image/jpeg',0.9),'JPEG',cx+(cellW-iw)/2,cy+(cellH-ih)/2,iw,ih); });
+  pdf.save(proofName()+'-sheet.pdf');
+}
+function recordClip(){
+  if(!renderer||!mesh){ showErr('Add a piece first.'); return; }
+  if(recorder) return;
+  if(!window.MediaRecorder||!renderer.domElement.captureStream){ showErr('Recording isn\'t supported in this browser — try Chrome or Safari.'); return; }
+  const stream=renderer.domElement.captureStream(30);
+  const cand=['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm'];
+  let mime=cand.find(t=>{try{return MediaRecorder.isTypeSupported(t);}catch(e){return false;}})||'';
+  try{ recorder=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:14000000}:undefined); }
+  catch(e){ showErr('Could not start recorder.'); recorder=null; return; }
+  recChunks=[];
+  recorder.ondataavailable=e=>{ if(e.data&&e.data.size)recChunks.push(e.data); };
+  recorder.onstop=()=>{ const ext=mime.indexOf('mp4')>=0?'mp4':'webm', blob=new Blob(recChunks,{type:mime||'video/webm'});
+    const a=document.createElement('a'); a.download=proofName()+'.'+ext; a.href=URL.createObjectURL(blob); a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),8000); recorder=null; status(''); if($('recBtn'))$('recBtn').textContent='Record clip'; };
+  const wasShow=showcase,wasAuto=autorot; showcase=false; autorot=false;
+  const startY=target.y, t0=performance.now(), dur=6000;
+  if($('recBtn'))$('recBtn').textContent='● Recording…'; status('Recording turntable…');
+  recorder.start();
+  (function spin(){ const e=performance.now()-t0;
+    if(e>=dur+450){ try{recorder.stop();}catch(_){ } showcase=wasShow; autorot=wasAuto; return; }
+    const f=Math.min(1,e/dur); target.y=startY+f*Math.PI*2; target.x=0.08*Math.sin(f*Math.PI*2);
+    requestAnimationFrame(spin); })();
+}
 function wireUI(){const canvas=$('c');let panning=false;
   canvas.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault();});
   canvas.addEventListener('contextmenu',e=>e.preventDefault());
@@ -594,14 +680,18 @@ function wireUI(){const canvas=$('c');let panning=false;
   $('exp').oninput=e=>{renderer.toneMappingExposure=e.target.value/100;$('expV').textContent=(e.target.value/100).toFixed(2);};
   $('envB').oninput=e=>{envInt=e.target.value/100;layers.forEach(L=>{if(L._mat)L._mat.envMapIntensity=envInt;});$('envBV').textContent=envInt.toFixed(2);};
   const bumpFinish=(which,d)=>{
-    if(which==='gloss'){ glossThick=Math.min(0.01,Math.max(0.001,Math.round((glossThick+d*0.001)*1000)/1000)); $('glossHV').textContent=glossThick.toFixed(3)+'″'; }
+    if(which==='gloss'){ glossThick=Math.min(0.03,Math.max(0.001,Math.round((glossThick+d*0.003)*1000)/1000)); $('glossHV').textContent=glossThick.toFixed(3)+'″'; }
     else { embStrength=Math.min(0.02,Math.max(0.001,Math.round((embStrength+d*0.001)*1000)/1000)); $('embHV').textContent=embStrength.toFixed(3)+'″'; }
     layers.forEach(L=>{ if(L.kind==='printed'&&L.FINISHES) buildLayerTex(L); }); rebuildStack();
   };
   document.querySelectorAll('.sbtn[data-bump]').forEach(b=>b.onclick=()=>bumpFinish(b.dataset.bump,+b.dataset.d));
   $('auto').onchange=e=>autorot=e.target.checked;
-  $('reset').onclick=()=>{target={x:0,y:0};panTarget={x:0,y:0};zoom=1;autorot=false;$('auto').checked=false;};
-  $('expPdf').onclick=savePdf; $('expPng').onclick=savePng;
+  $('reset').onclick=()=>{const wasExp=exploded;target={x:0,y:0};panTarget={x:0,y:0};zoom=1;autorot=false;$('auto').checked=false;showcase=false;$('showcase').checked=false;exploded=false;$('explode').classList.remove('active');if(keyLight){keyLight.intensity=0.45;keyLight.position.set(-1.2,1.4,2.0);}if(wasExp)rebuildStack();};
+  $('explode').onclick=()=>{ exploded=!exploded; $('explode').classList.toggle('active',exploded);
+    if(exploded){ _prevZoom=zoom; zoom=Math.max(zoom,1.3); target.x=0.32; target.y=-0.55; } else { zoom=_prevZoom||1; } rebuildStack(); };
+  $('expPdf').onclick=savePdf; $('expPng').onclick=savePng; $('expSheet').onclick=savePdfSheet; $('recBtn').onclick=recordClip;
+  $('balanced').onclick=balancedLight;
+  $('showcase').onchange=e=>{ showcase=e.target.checked; if(keyLight){ keyLight.intensity=showcase?0.85:0.45; if(!showcase)keyLight.position.set(-1.2,1.4,2.0); } if(showcase){ $('auto').checked=false; autorot=false; } };
   $('envMood').onchange=e=>{envMood=e.target.value;applyEnv();};
   $('keySize').oninput=e=>{keyR=+e.target.value;applyEnv();};
   const KP={tl:[300,110],top:[512,80],tr:[724,110],left:[170,235],front:[512,300],right:[854,235]};
