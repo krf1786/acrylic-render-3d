@@ -225,9 +225,14 @@ async function decodePdfToLayer(file){
   if(!gsReady){ showErr('Engine still loading — wait for "Ready".'); return null; }
   status('Reading '+file.name+'…');
   const bytes=new Uint8Array(await file.arrayBuffer());
-  status('Separating — running Ghostscript in your browser (~30s, may freeze briefly)…');
+  // adaptive resolution: render as sharp as fits the GPU's max texture (~8k px) — small pieces get up to ~400dpi, big layouts stay safe
+  let longIn=32; try{ const t=new TextDecoder('latin1').decode(bytes.subarray(0,Math.min(bytes.length,1500000)));
+    const m=t.match(/\/MediaBox\s*\[\s*([\-\d.]+)\s+([\-\d.]+)\s+([\-\d.]+)\s+([\-\d.]+)/);
+    if(m){ longIn=Math.max(Math.abs(m[3]-m[1]),Math.abs(m[4]-m[2]))/72; } }catch(e){}
+  const dpi=Math.max(200,Math.min(400,Math.round(6800/Math.max(6,longIn))));
+  status('Separating at '+dpi+' dpi — running Ghostscript in your browser (~30s, may freeze briefly)…');
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  const seps=await runTiffsep(bytes,200);
+  const seps=await runTiffsep(bytes,dpi);
   status('Decoding…'); await new Promise(r=>setTimeout(r,20));
   let W=0,H=0; const redCh=[],FINISHES=[]; let ink=null; const proc={};
   for(const s of seps){
@@ -400,7 +405,7 @@ function loadHDRI(slug){ if(typeof THREE.RGBELoader==='undefined'){ showErr('Sce
     undefined, ()=>{ status(''); showErr('Could not load that scene (network/CORS). Try another or use the lighting presets.'); }); }
 function initRenderer(){
   renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,alpha:true,preserveDrawingBuffer:true});
-  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.setPixelRatio(Math.min(2.5,(window.devicePixelRatio||1)*1.5));   // supersample for crisper edges/reflections
   renderer.outputEncoding=THREE.sRGBEncoding;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.10;
   scene=new THREE.Scene();scene.background=null;
   camera=new THREE.PerspectiveCamera(26,1,0.1,100);camera.position.set(0,0,baseCamZ);
@@ -556,7 +561,7 @@ function proofCaption(x,Wd,Hd){
 function captureProof(){
   if(!renderer||!mesh){ showErr('Add a piece first.'); return null; }
   const s=$('stage'), cw=s.clientWidth, ch=s.clientHeight;
-  const scale=Math.max(1.5,Math.min(3.5, 2600/cw)), dpr0=renderer.getPixelRatio();
+  const scale=Math.max(1.5,Math.min(4.5, 3600/cw)), dpr0=renderer.getPixelRatio();
   renderer.setPixelRatio(scale); renderer.setSize(cw,ch,false); renderer.render(scene,camera);
   const Wd=Math.round(cw*scale), Hd=Math.round(ch*scale);
   const out=document.createElement('canvas'); out.width=Wd; out.height=Hd; const x=out.getContext('2d');
