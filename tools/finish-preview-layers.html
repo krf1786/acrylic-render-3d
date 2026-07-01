@@ -616,9 +616,11 @@ function makeHandArt(art){                                   // path -> crisp te
 function makeHand(art, baseMat){
   const A=makeHandArt(art), node=new THREE.Group(), snode=new THREE.Group();
   const sMat=new THREE.MeshBasicMaterial({color:0x000000, alphaMap:A.stex, transparent:true, opacity:0.5, depthWrite:false, side:THREE.DoubleSide});
-  const sh=new THREE.Mesh(new THREE.PlaneGeometry(A.planeW,A.planeH), sMat); sh.position.set(A.ox,A.oy,-0.012); snode.add(sh);
-  const m=baseMat.clone(); m.alphaMap=A.tex; m.normalMap=A.ntex; m.normalScale=new THREE.Vector2(0.75,0.75); m.transparent=true; m.alphaTest=0.4; m.depthWrite=true; m.needsUpdate=true;
-  const me=new THREE.Mesh(new THREE.PlaneGeometry(A.planeW,A.planeH), m); me.position.set(A.ox,A.oy,0); node.add(me);
+  const sh=new THREE.Mesh(new THREE.PlaneGeometry(A.planeW,A.planeH), sMat); sh.position.set(A.ox,A.oy,-0.024); snode.add(sh);
+  const m=baseMat.clone(); m.alphaMap=A.tex; m.normalMap=A.ntex; m.normalScale=new THREE.Vector2(0.75,0.75); m.transparent=true; m.alphaTest=0.4; m.depthWrite=true; m.side=THREE.DoubleSide; m.needsUpdate=true;
+  const geo=new THREE.PlaneGeometry(A.planeW,A.planeH);           // slim silhouette stack -> a little real edge thickness
+  const TH=0.016, N=5;
+  for(let i=0;i<N;i++){ const me=new THREE.Mesh(geo,m); me.position.set(A.ox,A.oy,-i*(TH/(N-1))); node.add(me); }
   return {node, snode};
 }
 function setClock(on){ clockOn=on;
